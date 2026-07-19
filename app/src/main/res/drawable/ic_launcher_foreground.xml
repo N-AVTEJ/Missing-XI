@@ -1,0 +1,28 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Outer Neon Green Glowing Badge -->
+    <path
+        android:strokeColor="#00FF66"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M54,16 L84,30 L84,66 C84,82 54,92 54,92 C54,92 24,82 24,66 L24,30 Z" />
+
+    <!-- Inner Neon Blue Tech Accents -->
+    <path
+        android:strokeColor="#00D2FF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M54,24 L76,34 L76,64 C76,76 54,84 54,84 C54,84 32,76 32,64 L32,34 Z" />
+
+    <!-- Center 'XI' Sports Graphic (Roman Numeral for 11 players) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,38 L48,38 L48,70 L42,70 Z M66,38 L60,38 L60,70 L66,70 Z M46,38 L62,70 M62,38 L46,70" />
+
+</vector>
