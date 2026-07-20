@@ -89,6 +89,71 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // Dynamic Build Screen State
+    val buildTotalPlayersInput = MutableStateFlow("11")
+    val buildPlayersList = MutableStateFlow<List<String>>(List(11) { "Player ${it + 1}" })
+    val buildSearchQuery = MutableStateFlow("")
+    val buildDuplicateError = MutableStateFlow<String?>(null)
+
+    fun updateBuildTotalPlayers(total: String) {
+        buildTotalPlayersInput.value = total
+        val count = total.toIntOrNull() ?: return
+        if (count > 0 && count <= 100) {
+            val currentList = buildPlayersList.value
+            if (count > currentList.size) {
+                val newList = currentList.toMutableList()
+                for (i in currentList.size until count) {
+                    newList.add("Player ${i + 1}")
+                }
+                buildPlayersList.value = newList
+            } else if (count < currentList.size) {
+                buildPlayersList.value = currentList.take(count)
+            }
+            validateDuplicates(buildPlayersList.value)
+        }
+    }
+
+    fun addBuildPlayer() {
+        val currentList = buildPlayersList.value.toMutableList()
+        currentList.add("New Player ${currentList.size + 1}")
+        buildPlayersList.value = currentList
+        buildTotalPlayersInput.value = currentList.size.toString()
+        validateDuplicates(currentList)
+    }
+
+    fun removeBuildPlayer(index: Int) {
+        val currentList = buildPlayersList.value.toMutableList()
+        if (index in currentList.indices) {
+            currentList.removeAt(index)
+            buildPlayersList.value = currentList
+            buildTotalPlayersInput.value = currentList.size.toString()
+            validateDuplicates(currentList)
+        }
+    }
+
+    fun updateBuildPlayerName(index: Int, name: String) {
+        val currentList = buildPlayersList.value.toMutableList()
+        if (index in currentList.indices) {
+            currentList[index] = name
+            buildPlayersList.value = currentList
+            validateDuplicates(currentList)
+        }
+    }
+
+    fun updateBuildSearchQuery(query: String) {
+        buildSearchQuery.value = query
+    }
+
+    private fun validateDuplicates(list: List<String>) {
+        val nonBlank = list.filter { it.isNotBlank() }
+        val duplicates = nonBlank.groupingBy { it.trim().lowercase() }.eachCount().filter { it.value > 1 }
+        if (duplicates.isNotEmpty()) {
+            buildDuplicateError.value = "Warning: Duplicate names found!"
+        } else {
+            buildDuplicateError.value = null
+        }
+    }
+
     init {
         generatePlayersForFormation("Football", "4-3-3")
     }
