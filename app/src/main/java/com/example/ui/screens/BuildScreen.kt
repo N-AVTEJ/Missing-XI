@@ -36,6 +36,7 @@ fun BuildScreen(viewModel: AppViewModel) {
     val playersList by viewModel.buildPlayersList.collectAsState()
     val searchQuery by viewModel.buildSearchQuery.collectAsState()
     val duplicateError by viewModel.buildDuplicateError.collectAsState()
+    val emptyFieldError by viewModel.buildEmptyFieldError.collectAsState()
 
     val filteredPlayers = playersList.mapIndexed { index, name -> index to name }
         .filter { it.second.contains(searchQuery, ignoreCase = true) }
@@ -132,8 +133,9 @@ fun BuildScreen(viewModel: AppViewModel) {
                 }
 
                 // Error Badge
+                val currentError = duplicateError ?: emptyFieldError
                 AnimatedVisibility(
-                    visible = duplicateError != null,
+                    visible = currentError != null,
                     enter = fadeIn() + scaleIn(),
                     exit = fadeOut() + scaleOut()
                 ) {
@@ -148,7 +150,7 @@ fun BuildScreen(viewModel: AppViewModel) {
                             Icon(Icons.Default.Warning, contentDescription = "Warning", tint = CrimsonHot, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = duplicateError ?: "",
+                                text = currentError ?: "",
                                 color = CrimsonHot,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp

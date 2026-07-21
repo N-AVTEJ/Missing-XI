@@ -94,6 +94,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val buildPlayersList = MutableStateFlow<List<String>>(List(11) { "Player ${it + 1}" })
     val buildSearchQuery = MutableStateFlow("")
     val buildDuplicateError = MutableStateFlow<String?>(null)
+    val buildEmptyFieldError = MutableStateFlow<String?>(null)
 
     fun updateBuildTotalPlayers(total: String) {
         buildTotalPlayersInput.value = total
@@ -151,6 +152,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             buildDuplicateError.value = "Warning: Duplicate names found!"
         } else {
             buildDuplicateError.value = null
+        }
+        
+        if (list.any { it.isBlank() }) {
+            buildEmptyFieldError.value = "Warning: Player name cannot be empty!"
+        } else {
+            buildEmptyFieldError.value = null
         }
     }
 
