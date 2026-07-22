@@ -1,5 +1,6 @@
 package com.example.ui.viewmodel
 
+import android.content.Context
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,6 +9,7 @@ import com.example.data.firebase.FirebaseService
 import com.example.data.model.LineupEntity
 import com.example.data.model.TossEntity
 import com.example.data.repository.AppRepository
+import org.json.JSONArray
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -174,8 +176,63 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     data class GeneratedTeam(val teamNumber: Int, val name: String, val players: List<String>)
 
     val generatedTeams = MutableStateFlow<List<GeneratedTeam>>(emptyList())
-    val jokerPlayer = MutableStateFlow<String?>(null)
     
+    private val jokerPrefs = application.getSharedPreferences("joker_rotation_prefs", Context.MODE_PRIVATE)
+
+    val previousJokersHistory = MutableStateFlow<List<String>>(emptyList())
+    val currentCycleJokers = MutableStateFlow<List<String>>(emptyList())
+    val jokerPlayer = MutableStateFlow<String?>(null)
+
+    val remainingJokerCandidates: StateFlow<List<String>> = combine(buildPlayersList, currentCycleJokers) { players, cycle ->
+        val active = players.map { it.trim() }.filter { it.isNotBlank() }
+        val cycleSet = cycle.toSet()
+        val remaining = active.filter { it !in cycleSet }
+        if (remaining.isEmpty() && active.isNotEmpty()) {
+            active
+        } else {
+            remaining
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private fun loadJokerHistory() {
+        val jsonHistoryStr = jokerPrefs.getString("previous_jokers_history", "[]") ?: "[]"
+        val jsonCycleStr = jokerPrefs.getString("current_cycle_jokers", "[]") ?: "[]"
+        val curJoker = jokerPrefs.getString("current_joker", null)
+
+        val historyList = mutableListOf<String>()
+        try {
+            val arr = JSONArray(jsonHistoryStr)
+            for (i in 0 until arr.length()) historyList.add(arr.getString(i))
+        } catch (e: Exception) { e.printStackTrace() }
+
+        val cycleList = mutableListOf<String>()
+        try {
+            val arr = JSONArray(jsonCycleStr)
+            for (i in 0 until arr.length()) cycleList.add(arr.getString(i))
+        } catch (e: Exception) { e.printStackTrace() }
+
+        previousJokersHistory.value = historyList
+        currentCycleJokers.value = cycleList
+        jokerPlayer.value = curJoker
+    }
+
+    private fun saveJokerHistory() {
+        val jsonHistory = JSONArray(previousJokersHistory.value).toString()
+        val jsonCycle = JSONArray(currentCycleJokers.value).toString()
+        jokerPrefs.edit()
+            .putString("previous_jokers_history", jsonHistory)
+            .putString("current_cycle_jokers", jsonCycle)
+            .putString("current_joker", jokerPlayer.value)
+            .apply()
+    }
+
+    fun clearJokerHistory() {
+        previousJokersHistory.value = emptyList()
+        currentCycleJokers.value = emptyList()
+        jokerPlayer.value = null
+        jokerPrefs.edit().clear().apply()
+    }
+
     val teamConfigState = combine(configNumberOfTeams, buildPlayersList) { numTeamsStr, players ->
         val numTeams = numTeamsStr.toIntOrNull() ?: 0
         val totalPlayers = players.size
@@ -191,15 +248,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun shuffleTeams() {
         val numTeams = configNumberOfTeams.value.toIntOrNull() ?: 0
-        val activePlayers = buildPlayersList.value.filter { it.isNotBlank() }
+        val activePlayers = buildPlayersList.value.map { it.trim() }.filter { it.isNotBlank() }
         if (numTeams < 2 || activePlayers.size < numTeams) return
 
-        val shuffled = activePlayers.shuffled()
-
         if (activePlayers.size % numTeams != 0) {
-            val joker = shuffled.last()
-            jokerPlayer.value = joker
-            val teamPool = shuffled.dropLast(1)
+            val cycleSet = currentCycleJokers.value.toSet()
+            var eligible = activePlayers.filter { it !in cycleSet }
+
+            if (eligible.isEmpty()) {
+                currentCycleJokers.value = emptyList()
+                eligible = activePlayers
+            }
+
+            val pickedJoker = eligible.shuffled().first()
+            jokerPlayer.value = pickedJoker
+
+            val newCycle = currentCycleJokers.value.toMutableList().apply { add(pickedJoker) }
+            currentCycleJokers.value = newCycle
+
+            val newHistory = previousJokersHistory.value.toMutableList().apply { add(pickedJoker) }
+            previousJokersHistory.value = newHistory
+
+            saveJokerHistory()
+
+            val teamPool = activePlayers.filter { it != pickedJoker }.shuffled()
             val teamsList = List(numTeams) { mutableListOf<String>() }
 
             teamPool.forEachIndexed { index, player ->
@@ -215,6 +287,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         } else {
             jokerPlayer.value = null
+            saveJokerHistory()
+
+            val shuffled = activePlayers.shuffled()
             val teamsList = List(numTeams) { mutableListOf<String>() }
 
             shuffled.forEachIndexed { index, player ->
@@ -232,6 +307,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        loadJokerHistory()
         generatePlayersForFormation("Football", "4-3-3")
     }
 

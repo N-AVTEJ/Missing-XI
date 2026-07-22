@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.components.FrostedMeshBackground
 import com.example.ui.components.GlassyCard
 import com.example.ui.components.JokerCard
+import com.example.ui.components.JokerRotationSection
 import com.example.ui.components.NeonButton
 import com.example.ui.theme.CrimsonHot
 import com.example.ui.theme.GoldStar
@@ -43,6 +44,8 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val playersList by viewModel.buildPlayersList.collectAsState()
     val generatedTeams by viewModel.generatedTeams.collectAsState()
     val jokerPlayer by viewModel.jokerPlayer.collectAsState()
+    val remainingJokerCandidates by viewModel.remainingJokerCandidates.collectAsState()
+    val previousJokersHistory by viewModel.previousJokersHistory.collectAsState()
 
     FrostedMeshBackground {
         LazyColumn(
@@ -270,10 +273,15 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                 }
             }
 
-            // Joker Card Display
-            if (jokerPlayer != null && generatedTeams.isNotEmpty()) {
+            // Joker Rotation Section Display
+            if (generatedTeams.isNotEmpty() || previousJokersHistory.isNotEmpty()) {
                 item {
-                    JokerCard(jokerName = jokerPlayer!!)
+                    JokerRotationSection(
+                        currentJoker = jokerPlayer,
+                        remainingPlayers = remainingJokerCandidates,
+                        previousJokers = previousJokersHistory,
+                        onClearHistory = { viewModel.clearJokerHistory() }
+                    )
                 }
             }
 
