@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.components.FrostedMeshBackground
 import com.example.ui.components.GlassyCard
+import com.example.ui.components.JokerCard
 import com.example.ui.components.NeonButton
 import com.example.ui.theme.CrimsonHot
 import com.example.ui.theme.GoldStar
@@ -41,6 +42,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val configState by viewModel.teamConfigState.collectAsState()
     val playersList by viewModel.buildPlayersList.collectAsState()
     val generatedTeams by viewModel.generatedTeams.collectAsState()
+    val jokerPlayer by viewModel.jokerPlayer.collectAsState()
 
     FrostedMeshBackground {
         LazyColumn(
@@ -265,6 +267,13 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                             .testTag("shuffle_again_button"),
                         glowingColor = NeonGreen
                     )
+                }
+            }
+
+            // Joker Card Display
+            if (jokerPlayer != null && generatedTeams.isNotEmpty()) {
+                item {
+                    JokerCard(jokerName = jokerPlayer!!)
                 }
             }
 

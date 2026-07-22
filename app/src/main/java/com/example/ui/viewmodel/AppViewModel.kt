@@ -174,6 +174,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     data class GeneratedTeam(val teamNumber: Int, val name: String, val players: List<String>)
 
     val generatedTeams = MutableStateFlow<List<GeneratedTeam>>(emptyList())
+    val jokerPlayer = MutableStateFlow<String?>(null)
     
     val teamConfigState = combine(configNumberOfTeams, buildPlayersList) { numTeamsStr, players ->
         val numTeams = numTeamsStr.toIntOrNull() ?: 0
@@ -194,18 +195,39 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (numTeams < 2 || activePlayers.size < numTeams) return
 
         val shuffled = activePlayers.shuffled()
-        val teamsList = List(numTeams) { mutableListOf<String>() }
 
-        shuffled.forEachIndexed { index, player ->
-            teamsList[index % numTeams].add(player)
-        }
+        if (activePlayers.size % numTeams != 0) {
+            val joker = shuffled.last()
+            jokerPlayer.value = joker
+            val teamPool = shuffled.dropLast(1)
+            val teamsList = List(numTeams) { mutableListOf<String>() }
 
-        generatedTeams.value = teamsList.mapIndexed { index, players ->
-            GeneratedTeam(
-                teamNumber = index + 1,
-                name = "Team " + (('A' + index).toString()),
-                players = players
-            )
+            teamPool.forEachIndexed { index, player ->
+                teamsList[index % numTeams].add(player)
+            }
+
+            generatedTeams.value = teamsList.mapIndexed { index, players ->
+                GeneratedTeam(
+                    teamNumber = index + 1,
+                    name = "Team " + (('A' + index).toString()),
+                    players = players
+                )
+            }
+        } else {
+            jokerPlayer.value = null
+            val teamsList = List(numTeams) { mutableListOf<String>() }
+
+            shuffled.forEachIndexed { index, player ->
+                teamsList[index % numTeams].add(player)
+            }
+
+            generatedTeams.value = teamsList.mapIndexed { index, players ->
+                GeneratedTeam(
+                    teamNumber = index + 1,
+                    name = "Team " + (('A' + index).toString()),
+                    players = players
+                )
+            }
         }
     }
 
