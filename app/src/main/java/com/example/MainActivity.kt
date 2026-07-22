@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
 sealed class NavigationItem(val route: String, val title: String, val icon: ImageVector, val activeColor: Color) {
   object Home : NavigationItem("home", "Home", Icons.Default.Home, NeonGreen)
   object Build : NavigationItem("build", "Build", Icons.Default.AddCircle, NeonBlue)
+  object Teams : NavigationItem("teams", "Teams", Icons.Default.Groups, NeonGreen)
   object Setup : NavigationItem("setup", "Setup", Icons.Default.Group, IndigoAccent)
   object Toss : NavigationItem("toss", "Toss", Icons.Default.Casino, GoldStar)
   object History : NavigationItem("history", "History", Icons.Default.History, NeonGreen)
@@ -102,6 +103,9 @@ fun MainNavigationContainer() {
         composable("build") {
           BuildScreen(viewModel = viewModel)
         }
+        composable("teams") {
+          TeamConfigScreen(viewModel = viewModel)
+        }
         composable("setup") {
           MatchSetupScreen(viewModel = viewModel)
         }
@@ -127,6 +131,7 @@ fun CustomBottomNavigationBar(
   val items = listOf(
     NavigationItem.Home,
     NavigationItem.Build,
+    NavigationItem.Teams,
     NavigationItem.Setup,
     NavigationItem.Toss,
     NavigationItem.History,

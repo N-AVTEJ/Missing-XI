@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 data class PlayerSlot(
@@ -160,6 +161,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             buildEmptyFieldError.value = null
         }
     }
+
+    // Team Configuration State
+    val configNumberOfTeams = MutableStateFlow("2")
+
+    fun updateConfigNumberOfTeams(numTeamsStr: String) {
+        configNumberOfTeams.value = numTeamsStr
+    }
+    
+    data class TeamConfigState(val playersPerTeam: Int = 0, val remainingPlayers: Int = 0, val error: String? = null)
+    
+    val teamConfigState = combine(configNumberOfTeams, buildPlayersList) { numTeamsStr, players ->
+        val numTeams = numTeamsStr.toIntOrNull() ?: 0
+        val totalPlayers = players.size
+        
+        if (numTeams <= 1) {
+            TeamConfigState(0, 0, "Number of teams must be at least 2.")
+        } else if (numTeams > totalPlayers) {
+            TeamConfigState(0, 0, "Number of teams cannot exceed total active players.")
+        } else {
+            TeamConfigState(totalPlayers / numTeams, totalPlayers % numTeams, null)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TeamConfigState(0,0,null))
 
     init {
         generatePlayersForFormation("Football", "4-3-3")
