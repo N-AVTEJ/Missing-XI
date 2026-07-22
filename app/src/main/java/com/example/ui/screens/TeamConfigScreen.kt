@@ -11,6 +11,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.components.FrostedMeshBackground
 import com.example.ui.components.GlassyCard
+import com.example.ui.components.NeonButton
 import com.example.ui.theme.CrimsonHot
 import com.example.ui.theme.GoldStar
 import com.example.ui.theme.IndigoAccent
@@ -37,6 +40,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val numberOfTeams by viewModel.configNumberOfTeams.collectAsState()
     val configState by viewModel.teamConfigState.collectAsState()
     val playersList by viewModel.buildPlayersList.collectAsState()
+    val generatedTeams by viewModel.generatedTeams.collectAsState()
 
     FrostedMeshBackground {
         LazyColumn(
@@ -239,6 +243,144 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold
                                     )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Shuffle Button Item
+            item {
+                AnimatedVisibility(
+                    visible = configState.error == null,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    NeonButton(
+                        text = if (generatedTeams.isEmpty()) "Shuffle & Generate Teams" else "Shuffle Again",
+                        onClick = { viewModel.shuffleTeams() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("shuffle_again_button"),
+                        glowingColor = NeonGreen
+                    )
+                }
+            }
+
+            // Generated Teams List
+            if (generatedTeams.isNotEmpty()) {
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = "Generated",
+                                tint = NeonGreen,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "BALANCED TEAMS",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NeonGreen,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        Text(
+                            text = "${generatedTeams.size} Teams Created",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.LightGray
+                        )
+                    }
+                }
+
+                items(generatedTeams.size, key = { generatedTeams[it].teamNumber }) { index ->
+                    val team = generatedTeams[index]
+                    val accentColor = when (index % 4) {
+                        0 -> NeonGreen
+                        1 -> NeonBlue
+                        2 -> IndigoAccent
+                        else -> GoldStar
+                    }
+
+                    GlassyCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 20
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(accentColor)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = team.name,
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(accentColor.copy(alpha = 0.15f))
+                                        .border(1.dp, accentColor.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "${team.players.size} Players",
+                                        color = accentColor,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            Divider(color = Color.White.copy(alpha = 0.08f))
+
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                team.players.forEachIndexed { _, player ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color.White.copy(alpha = 0.03f))
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Person,
+                                            contentDescription = "Player",
+                                            tint = accentColor.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = player,
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontSize = 13.sp
+                                        )
+                                    }
                                 }
                             }
                         }

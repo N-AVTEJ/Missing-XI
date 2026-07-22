@@ -171,6 +171,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     
     data class TeamConfigState(val playersPerTeam: Int = 0, val remainingPlayers: Int = 0, val error: String? = null)
     
+    data class GeneratedTeam(val teamNumber: Int, val name: String, val players: List<String>)
+
+    val generatedTeams = MutableStateFlow<List<GeneratedTeam>>(emptyList())
+    
     val teamConfigState = combine(configNumberOfTeams, buildPlayersList) { numTeamsStr, players ->
         val numTeams = numTeamsStr.toIntOrNull() ?: 0
         val totalPlayers = players.size
@@ -183,6 +187,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             TeamConfigState(totalPlayers / numTeams, totalPlayers % numTeams, null)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TeamConfigState(0,0,null))
+
+    fun shuffleTeams() {
+        val numTeams = configNumberOfTeams.value.toIntOrNull() ?: 0
+        val activePlayers = buildPlayersList.value.filter { it.isNotBlank() }
+        if (numTeams < 2 || activePlayers.size < numTeams) return
+
+        val shuffled = activePlayers.shuffled()
+        val teamsList = List(numTeams) { mutableListOf<String>() }
+
+        shuffled.forEachIndexed { index, player ->
+            teamsList[index % numTeams].add(player)
+        }
+
+        generatedTeams.value = teamsList.mapIndexed { index, players ->
+            GeneratedTeam(
+                teamNumber = index + 1,
+                name = "Team " + (('A' + index).toString()),
+                players = players
+            )
+        }
+    }
 
     init {
         generatePlayersForFormation("Football", "4-3-3")
