@@ -175,7 +175,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     
     data class GeneratedTeam(val teamNumber: Int, val name: String, val players: List<String>)
 
+    data class ShuffleSession(
+        val shuffleNumber: Int,
+        val timestamp: Long,
+        val teams: List<GeneratedTeam>,
+        val players: List<String>,
+        val joker: String?
+    )
+
     val generatedTeams = MutableStateFlow<List<GeneratedTeam>>(emptyList())
+    private var nextShuffleNumber = 1
+    val sessionHistory = MutableStateFlow<List<ShuffleSession>>(emptyList())
     
     private val jokerPrefs = application.getSharedPreferences("joker_rotation_prefs", Context.MODE_PRIVATE)
 
@@ -278,13 +288,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 teamsList[index % numTeams].add(player)
             }
 
-            generatedTeams.value = teamsList.mapIndexed { index, players ->
+            val resultTeams = teamsList.mapIndexed { index, players ->
                 GeneratedTeam(
                     teamNumber = index + 1,
                     name = "Team " + (('A' + index).toString()),
                     players = players
                 )
             }
+            generatedTeams.value = resultTeams
         } else {
             jokerPlayer.value = null
             saveJokerHistory()
@@ -296,14 +307,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 teamsList[index % numTeams].add(player)
             }
 
-            generatedTeams.value = teamsList.mapIndexed { index, players ->
+            val resultTeams = teamsList.mapIndexed { index, players ->
                 GeneratedTeam(
                     teamNumber = index + 1,
                     name = "Team " + (('A' + index).toString()),
                     players = players
                 )
             }
+            generatedTeams.value = resultTeams
         }
+
+        val session = ShuffleSession(
+            shuffleNumber = nextShuffleNumber++,
+            timestamp = System.currentTimeMillis(),
+            teams = generatedTeams.value,
+            players = activePlayers,
+            joker = jokerPlayer.value
+        )
+        sessionHistory.value = listOf(session) + sessionHistory.value
+    }
+
+    fun clearSessionHistory() {
+        sessionHistory.value = emptyList()
+        nextShuffleNumber = 1
     }
 
     init {

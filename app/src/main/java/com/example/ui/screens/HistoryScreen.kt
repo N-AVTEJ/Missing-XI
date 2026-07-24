@@ -32,8 +32,9 @@ import java.util.*
 fun HistoryScreen(viewModel: AppViewModel) {
     val savedLineups by viewModel.savedLineups.collectAsState()
     val savedTosses by viewModel.savedTosses.collectAsState()
+    val sessionHistory by viewModel.sessionHistory.collectAsState()
 
-    var activeTab by remember { mutableStateOf("Lineups") } // "Lineups" or "Tosses"
+    var activeTab by remember { mutableStateOf("Shuffles") } // "Shuffles", "Lineups" or "Tosses"
 
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy - hh:mm a", Locale.getDefault()) }
 
@@ -63,7 +64,7 @@ fun HistoryScreen(viewModel: AppViewModel) {
                     .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(99.dp))
                     .padding(4.dp)
             ) {
-                listOf("Lineups", "Tosses").forEach { tab ->
+                listOf("Shuffles", "Lineups", "Tosses").forEach { tab ->
                     val isSelected = activeTab == tab
                     Box(
                         modifier = Modifier
@@ -71,22 +72,26 @@ fun HistoryScreen(viewModel: AppViewModel) {
                             .clip(RoundedCornerShape(99.dp))
                             .background(if (isSelected) IndigoAccent else Color.Transparent)
                             .clickable { activeTab = tab }
-                            .padding(vertical = 12.dp),
+                            .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = if (tab == "Lineups") Icons.Default.Groups else Icons.Default.Casino,
+                                imageVector = when (tab) {
+                                    "Shuffles" -> Icons.Default.Shuffle
+                                    "Lineups" -> Icons.Default.Groups
+                                    else -> Icons.Default.Casino
+                                },
                                 contentDescription = tab,
                                 tint = if (isSelected) Color.White else Color.Gray,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = tab,
                                 color = if (isSelected) Color.White else Color.Gray,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
+                                fontSize = 13.sp
                             )
                         }
                     }
@@ -96,7 +101,137 @@ fun HistoryScreen(viewModel: AppViewModel) {
             Spacer(modifier = Modifier.height(16.dp))
 
             // Content Lists
-            if (activeTab == "Lineups") {
+            if (activeTab == "Shuffles") {
+                if (sessionHistory.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = "No Sessions",
+                                tint = Color.DarkGray,
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text("No shuffle sessions recorded yet", color = Color.Gray, fontWeight = FontWeight.Medium)
+                            Text("Shuffle & generate teams in Team Config tab!", color = Color.DarkGray, fontSize = 12.sp)
+                        }
+                    }
+                } else {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Button(
+                            onClick = { viewModel.clearSessionHistory() },
+                            colors = ButtonDefaults.buttonColors(containerColor = CrimsonHot.copy(alpha = 0.15f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, CrimsonHot.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                .testTag("clear_session_history_button"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Clear Memory Session History", color = CrimsonHot, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize().testTag("shuffles_session_history_list"),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            items(sessionHistory, key = { it.shuffleNumber }) { session ->
+                                GlassyCard(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    cornerRadius = 20
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(NeonGreen.copy(alpha = 0.15f))
+                                                        .border(1.dp, NeonGreen.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "SHUFFLE #${session.shuffleNumber}",
+                                                        color = NeonGreen,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 11.sp
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = "${session.players.size} Players",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color.LightGray
+                                                )
+                                            }
+
+                                            Text(
+                                                text = dateFormatter.format(Date(session.timestamp)),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.Gray
+                                            )
+                                        }
+
+                                        Divider(color = Color.White.copy(alpha = 0.08f))
+
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.AutoAwesome,
+                                                contentDescription = "Joker",
+                                                tint = if (session.joker != null) FuchsiaAccent else NeonBlue,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = if (session.joker != null) "Joker: ${session.joker}" else "Joker: None (Even Split)",
+                                                color = if (session.joker != null) FuchsiaAccent else Color.LightGray,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.sp
+                                            )
+                                        }
+
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            session.teams.forEach { team ->
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color.White.copy(alpha = 0.03f))
+                                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "${team.name}: ",
+                                                        color = NeonGreen,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.sp
+                                                    )
+                                                    Text(
+                                                        text = team.players.joinToString(", "),
+                                                        color = Color.White,
+                                                        fontSize = 12.sp
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            item {
+                                Spacer(modifier = Modifier.height(100.dp))
+                            }
+                        }
+                    }
+                }
+            } else if (activeTab == "Lineups") {
                 if (savedLineups.isEmpty()) {
                     Box(
                         modifier = Modifier

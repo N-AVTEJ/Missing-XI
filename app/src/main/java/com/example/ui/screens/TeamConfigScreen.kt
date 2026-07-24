@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Info
@@ -30,11 +32,14 @@ import com.example.ui.components.JokerCard
 import com.example.ui.components.JokerRotationSection
 import com.example.ui.components.NeonButton
 import com.example.ui.theme.CrimsonHot
+import com.example.ui.theme.FuchsiaAccent
 import com.example.ui.theme.GoldStar
 import com.example.ui.theme.IndigoAccent
 import com.example.ui.theme.NeonBlue
 import com.example.ui.theme.NeonGreen
 import com.example.ui.viewmodel.AppViewModel
+import java.text.SimpleDateFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +51,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val jokerPlayer by viewModel.jokerPlayer.collectAsState()
     val remainingJokerCandidates by viewModel.remainingJokerCandidates.collectAsState()
     val previousJokersHistory by viewModel.previousJokersHistory.collectAsState()
+    val sessionHistory by viewModel.sessionHistory.collectAsState()
 
     FrostedMeshBackground {
         LazyColumn(
@@ -396,6 +402,134 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                             color = Color.White,
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // In-Memory Session History Section
+            if (sessionHistory.isNotEmpty()) {
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = "Session History",
+                                tint = GoldStar,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "SESSION SHUFFLE HISTORY",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = GoldStar,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        Text(
+                            text = "${sessionHistory.size} Shuffles Saved",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.LightGray
+                        )
+                    }
+                }
+
+                items(sessionHistory.size, key = { "session_${sessionHistory[it].shuffleNumber}" }) { index ->
+                    val session = sessionHistory[index]
+                    val timeFormat = remember { SimpleDateFormat("hh:mm:ss a", Locale.getDefault()) }
+
+                    GlassyCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("session_history_card_${session.shuffleNumber}"),
+                        cornerRadius = 20
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(GoldStar.copy(alpha = 0.15f))
+                                            .border(1.dp, GoldStar.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "Shuffle #${session.shuffleNumber}",
+                                            color = GoldStar,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "${session.players.size} Players",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.LightGray
+                                    )
+                                }
+
+                                Text(
+                                    text = timeFormat.format(Date(session.timestamp)),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.Gray
+                                )
+                            }
+
+                            Divider(color = Color.White.copy(alpha = 0.08f))
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Joker",
+                                    tint = if (session.joker != null) FuchsiaAccent else NeonBlue,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (session.joker != null) "Joker: ${session.joker}" else "Joker: None (Even Split)",
+                                    color = if (session.joker != null) FuchsiaAccent else Color.LightGray,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                session.teams.forEach { team ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color.White.copy(alpha = 0.03f))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "${team.name}: ",
+                                            color = NeonGreen,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp
+                                        )
+                                        Text(
+                                            text = team.players.joinToString(", "),
+                                            color = Color.White,
+                                            fontSize = 12.sp
                                         )
                                     }
                                 }
