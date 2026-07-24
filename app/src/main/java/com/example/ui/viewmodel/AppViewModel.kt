@@ -186,6 +186,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val generatedTeams = MutableStateFlow<List<GeneratedTeam>>(emptyList())
     private var nextShuffleNumber = 1
     val sessionHistory = MutableStateFlow<List<ShuffleSession>>(emptyList())
+
+    val generatedSignaturesSet = MutableStateFlow<Set<String>>(emptySet())
+    val duplicatesPrevented = MutableStateFlow(0)
+    val currentShuffleNumber = MutableStateFlow(0)
+    val uniqueTeamsGenerated = MutableStateFlow(0)
+
+    fun generateArrangementSignature(teams: List<GeneratedTeam>, joker: String?): String {
+        val sortedTeams = teams.map { team ->
+            team.players.map { it.trim() }.sorted().joinToString(",")
+        }.sorted()
+        val teamsStr = sortedTeams.joinToString(" | ")
+        val jokerStr = if (!joker.isNullOrBlank()) " [JOKER: ${joker.trim()}]" else ""
+        return "$teamsStr$jokerStr"
+    }
     
     private val jokerPrefs = application.getSharedPreferences("joker_rotation_prefs", Context.MODE_PRIVATE)
 
@@ -261,74 +275,106 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val activePlayers = buildPlayersList.value.map { it.trim() }.filter { it.isNotBlank() }
         if (numTeams < 2 || activePlayers.size < numTeams) return
 
-        if (activePlayers.size % numTeams != 0) {
-            val cycleSet = currentCycleJokers.value.toSet()
-            var eligible = activePlayers.filter { it !in cycleSet }
+        val existingSigs = generatedSignaturesSet.value.toMutableSet()
+        var attempts = 0
+        val maxAttempts = 100
 
-            if (eligible.isEmpty()) {
-                currentCycleJokers.value = emptyList()
-                eligible = activePlayers
+        var chosenTeams: List<GeneratedTeam> = emptyList()
+        var chosenJoker: String? = null
+        var chosenCycle: List<String> = currentCycleJokers.value
+        var chosenHistory: List<String> = previousJokersHistory.value
+        var chosenSignature = ""
+
+        while (attempts < maxAttempts) {
+            var tempJoker: String? = null
+            var tempCycle = currentCycleJokers.value.toMutableList()
+            var tempHistory = previousJokersHistory.value.toMutableList()
+            val tempPool: List<String>
+
+            if (activePlayers.size % numTeams != 0) {
+                val cycleSet = tempCycle.toSet()
+                var eligible = activePlayers.filter { it !in cycleSet }
+
+                if (eligible.isEmpty()) {
+                    tempCycle.clear()
+                    eligible = activePlayers
+                }
+
+                val pickedJoker = eligible.shuffled().first()
+                tempJoker = pickedJoker
+
+                tempCycle.add(pickedJoker)
+                tempHistory.add(pickedJoker)
+
+                tempPool = activePlayers.filter { it != pickedJoker }.shuffled()
+            } else {
+                tempJoker = null
+                tempPool = activePlayers.shuffled()
             }
 
-            val pickedJoker = eligible.shuffled().first()
-            jokerPlayer.value = pickedJoker
-
-            val newCycle = currentCycleJokers.value.toMutableList().apply { add(pickedJoker) }
-            currentCycleJokers.value = newCycle
-
-            val newHistory = previousJokersHistory.value.toMutableList().apply { add(pickedJoker) }
-            previousJokersHistory.value = newHistory
-
-            saveJokerHistory()
-
-            val teamPool = activePlayers.filter { it != pickedJoker }.shuffled()
             val teamsList = List(numTeams) { mutableListOf<String>() }
-
-            teamPool.forEachIndexed { index, player ->
+            tempPool.forEachIndexed { index, player ->
                 teamsList[index % numTeams].add(player)
             }
 
-            val resultTeams = teamsList.mapIndexed { index, players ->
+            val candidateTeams = teamsList.mapIndexed { index, players ->
                 GeneratedTeam(
                     teamNumber = index + 1,
                     name = "Team " + (('A' + index).toString()),
                     players = players
                 )
             }
-            generatedTeams.value = resultTeams
-        } else {
-            jokerPlayer.value = null
-            saveJokerHistory()
 
-            val shuffled = activePlayers.shuffled()
-            val teamsList = List(numTeams) { mutableListOf<String>() }
+            val sig = generateArrangementSignature(candidateTeams, tempJoker)
 
-            shuffled.forEachIndexed { index, player ->
-                teamsList[index % numTeams].add(player)
+            if (existingSigs.contains(sig)) {
+                duplicatesPrevented.value += 1
+                attempts++
+            } else {
+                chosenTeams = candidateTeams
+                chosenJoker = tempJoker
+                chosenCycle = tempCycle
+                chosenHistory = tempHistory
+                chosenSignature = sig
+                break
             }
-
-            val resultTeams = teamsList.mapIndexed { index, players ->
-                GeneratedTeam(
-                    teamNumber = index + 1,
-                    name = "Team " + (('A' + index).toString()),
-                    players = players
-                )
-            }
-            generatedTeams.value = resultTeams
         }
 
+        if (chosenSignature.isEmpty() && chosenTeams.isNotEmpty()) {
+            chosenSignature = generateArrangementSignature(chosenTeams, chosenJoker)
+        }
+
+        jokerPlayer.value = chosenJoker
+        currentCycleJokers.value = chosenCycle
+        previousJokersHistory.value = chosenHistory
+        saveJokerHistory()
+
+        generatedTeams.value = chosenTeams
+        if (chosenSignature.isNotEmpty()) {
+            existingSigs.add(chosenSignature)
+        }
+        generatedSignaturesSet.value = existingSigs
+        uniqueTeamsGenerated.value = existingSigs.size
+
+        val shuffleNum = nextShuffleNumber++
+        currentShuffleNumber.value = shuffleNum
+
         val session = ShuffleSession(
-            shuffleNumber = nextShuffleNumber++,
+            shuffleNumber = shuffleNum,
             timestamp = System.currentTimeMillis(),
-            teams = generatedTeams.value,
+            teams = chosenTeams,
             players = activePlayers,
-            joker = jokerPlayer.value
+            joker = chosenJoker
         )
         sessionHistory.value = listOf(session) + sessionHistory.value
     }
 
     fun clearSessionHistory() {
         sessionHistory.value = emptyList()
+        generatedSignaturesSet.value = emptySet()
+        duplicatesPrevented.value = 0
+        currentShuffleNumber.value = 0
+        uniqueTeamsGenerated.value = 0
         nextShuffleNumber = 1
     }
 
