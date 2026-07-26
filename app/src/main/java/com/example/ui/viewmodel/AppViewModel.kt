@@ -9,6 +9,9 @@ import com.example.data.firebase.FirebaseService
 import com.example.data.model.LineupEntity
 import com.example.data.model.TossEntity
 import com.example.data.repository.AppRepository
+import com.example.util.PairStatistics
+import com.example.util.Player
+import com.example.util.TeammatePairTracker
 import org.json.JSONArray
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +19,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 data class PlayerSlot(
@@ -173,7 +177,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     
     data class TeamConfigState(val playersPerTeam: Int = 0, val remainingPlayers: Int = 0, val error: String? = null)
     
-    data class GeneratedTeam(val teamNumber: Int, val name: String, val players: List<String>)
+    data class GeneratedTeam(
+        val teamNumber: Int,
+        val name: String,
+        val players: List<String>,
+        val playerIds: List<String> = emptyList()
+    )
 
     data class ShuffleSession(
         val shuffleNumber: Int,
@@ -186,6 +195,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val generatedTeams = MutableStateFlow<List<GeneratedTeam>>(emptyList())
     private var nextShuffleNumber = 1
     val sessionHistory = MutableStateFlow<List<ShuffleSession>>(emptyList())
+
+    val teammatePairCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val pairStatistics: StateFlow<PairStatistics> = teammatePairCounts.map { counts ->
+        TeammatePairTracker.calculatePairStatistics(counts)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PairStatistics())
 
     val generatedSignaturesSet = MutableStateFlow<Set<String>>(emptySet())
     val duplicatesPrevented = MutableStateFlow(0)
@@ -272,8 +286,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun shuffleTeams() {
         val numTeams = configNumberOfTeams.value.toIntOrNull() ?: 0
-        val activePlayers = buildPlayersList.value.map { it.trim() }.filter { it.isNotBlank() }
-        if (numTeams < 2 || activePlayers.size < numTeams) return
+        val activePlayerObjects = buildPlayersList.value.mapIndexed { index, name ->
+            Player(id = "player_${index + 1}", name = name.trim())
+        }.filter { it.name.isNotBlank() }
+        val activePlayerNames = activePlayerObjects.map { it.name }
+        if (numTeams < 2 || activePlayerObjects.size < numTeams) return
 
         val existingSigs = generatedSignaturesSet.value.toMutableSet()
         var attempts = 0
@@ -289,30 +306,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             var tempJoker: String? = null
             var tempCycle = currentCycleJokers.value.toMutableList()
             var tempHistory = previousJokersHistory.value.toMutableList()
-            val tempPool: List<String>
+            val tempPool: List<Player>
 
-            if (activePlayers.size % numTeams != 0) {
+            if (activePlayerObjects.size % numTeams != 0) {
                 val cycleSet = tempCycle.toSet()
-                var eligible = activePlayers.filter { it !in cycleSet }
+                var eligible = activePlayerObjects.filter { it.name !in cycleSet && it.id !in cycleSet }
 
                 if (eligible.isEmpty()) {
                     tempCycle.clear()
-                    eligible = activePlayers
+                    eligible = activePlayerObjects
                 }
 
                 val pickedJoker = eligible.shuffled().first()
-                tempJoker = pickedJoker
+                tempJoker = pickedJoker.name
 
-                tempCycle.add(pickedJoker)
-                tempHistory.add(pickedJoker)
+                tempCycle.add(pickedJoker.name)
+                tempHistory.add(pickedJoker.name)
 
-                tempPool = activePlayers.filter { it != pickedJoker }.shuffled()
+                tempPool = activePlayerObjects.filter { it.id != pickedJoker.id }.shuffled()
             } else {
                 tempJoker = null
-                tempPool = activePlayers.shuffled()
+                tempPool = activePlayerObjects.shuffled()
             }
 
-            val teamsList = List(numTeams) { mutableListOf<String>() }
+            val teamsList = List(numTeams) { mutableListOf<Player>() }
             tempPool.forEachIndexed { index, player ->
                 teamsList[index % numTeams].add(player)
             }
@@ -321,7 +338,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 GeneratedTeam(
                     teamNumber = index + 1,
                     name = "Team " + (('A' + index).toString()),
-                    players = players
+                    players = players.map { it.name },
+                    playerIds = players.map { it.id }
                 )
             }
 
@@ -363,14 +381,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             shuffleNumber = shuffleNum,
             timestamp = System.currentTimeMillis(),
             teams = chosenTeams,
-            players = activePlayers,
+            players = activePlayerNames,
             joker = chosenJoker
         )
         sessionHistory.value = listOf(session) + sessionHistory.value
+
+        // Update Teammate Pair Counts ONLY after accepted shuffle
+        val acceptedTeamsPlayerIds = chosenTeams.map { it.playerIds }
+        teammatePairCounts.value = TeammatePairTracker.updateTeammatePairCounts(
+            teammatePairCounts.value,
+            acceptedTeamsPlayerIds
+        )
     }
 
     fun clearSessionHistory() {
         sessionHistory.value = emptyList()
+        teammatePairCounts.value = emptyMap()
         generatedSignaturesSet.value = emptySet()
         duplicatesPrevented.value = 0
         currentShuffleNumber.value = 0
