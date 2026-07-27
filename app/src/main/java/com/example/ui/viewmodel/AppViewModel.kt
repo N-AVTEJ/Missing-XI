@@ -9,6 +9,7 @@ import com.example.data.firebase.FirebaseService
 import com.example.data.model.LineupEntity
 import com.example.data.model.TossEntity
 import com.example.data.repository.AppRepository
+import com.example.util.CandidatePairAnalysis
 import com.example.util.PairStatistics
 import com.example.util.Player
 import com.example.util.TeammatePairTracker
@@ -201,6 +202,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         TeammatePairTracker.calculatePairStatistics(counts)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PairStatistics())
 
+    val candidatePairAnalysis = MutableStateFlow<CandidatePairAnalysis?>(null)
+
     val generatedSignaturesSet = MutableStateFlow<Set<String>>(emptySet())
     val duplicatesPrevented = MutableStateFlow(0)
     val currentShuffleNumber = MutableStateFlow(0)
@@ -386,8 +389,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
         sessionHistory.value = listOf(session) + sessionHistory.value
 
-        // Update Teammate Pair Counts ONLY after accepted shuffle
+        // Analyze Candidate Teammate Pairs against existing history (BEFORE updating pair history)
         val acceptedTeamsPlayerIds = chosenTeams.map { it.playerIds }
+        val candidateAnalysis = TeammatePairTracker.analyzeCandidatePairs(
+            acceptedTeamsPlayerIds,
+            teammatePairCounts.value
+        )
+        candidatePairAnalysis.value = candidateAnalysis
+
+        // Update Teammate Pair Counts ONLY after accepted shuffle and analysis
         teammatePairCounts.value = TeammatePairTracker.updateTeammatePairCounts(
             teammatePairCounts.value,
             acceptedTeamsPlayerIds
@@ -397,6 +407,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun clearSessionHistory() {
         sessionHistory.value = emptyList()
         teammatePairCounts.value = emptyMap()
+        candidatePairAnalysis.value = null
         generatedSignaturesSet.value = emptySet()
         duplicatesPrevented.value = 0
         currentShuffleNumber.value = 0

@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Group
@@ -56,6 +57,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val duplicatesPrevented by viewModel.duplicatesPrevented.collectAsState()
     val currentShuffleNumber by viewModel.currentShuffleNumber.collectAsState()
     val pairStats by viewModel.pairStatistics.collectAsState()
+    val candidatePairAnalysis by viewModel.candidatePairAnalysis.collectAsState()
 
     FrostedMeshBackground {
         LazyColumn(
@@ -397,6 +399,167 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                         color = GoldStar,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Candidate Pair Analysis Display
+            val analysis = candidatePairAnalysis
+            if (analysis != null) {
+                item {
+                    GlassyCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("pair_analysis_card"),
+                        cornerRadius = 16
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Analytics,
+                                        contentDescription = "Pair Analysis",
+                                        tint = NeonBlue,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "PAIR ANALYSIS",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = NeonBlue,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 1.sp
+                                    )
+                                }
+                                Text(
+                                    text = "${analysis.totalPairs} PAIRS DETECTED",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.LightGray,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color.White.copy(alpha = 0.1f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            Divider(color = Color.White.copy(alpha = 0.08f))
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // New Pairs
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${analysis.newPairs}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = NeonGreen,
+                                        modifier = Modifier.testTag("new_pairs_count")
+                                    )
+                                    Text(
+                                        text = "New Pairs",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+
+                                Divider(
+                                    modifier = Modifier
+                                        .height(28.dp)
+                                        .width(1.dp),
+                                    color = Color.White.copy(alpha = 0.1f)
+                                )
+
+                                // Repeated Pairs
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${analysis.repeatedPairs}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (analysis.repeatedPairs > 0) GoldStar else Color.LightGray,
+                                        modifier = Modifier.testTag("repeated_pairs_count")
+                                    )
+                                    Text(
+                                        text = "Repeated Pairs",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+
+                                Divider(
+                                    modifier = Modifier
+                                        .height(28.dp)
+                                        .width(1.dp),
+                                    color = Color.White.copy(alpha = 0.1f)
+                                )
+
+                                // New Pair Rate
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    val rateText = "${analysis.newPairPercentage.toInt()}%"
+                                    Text(
+                                        text = rateText,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = NeonBlue,
+                                        modifier = Modifier.testTag("new_pair_rate")
+                                    )
+                                    Text(
+                                        text = "New Pair Rate",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+
+                                Divider(
+                                    modifier = Modifier
+                                        .height(28.dp)
+                                        .width(1.dp),
+                                    color = Color.White.copy(alpha = 0.1f)
+                                )
+
+                                // Most Repeated
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    val mostRepeatedText = "${analysis.maxHistoricalPairCount}×"
+                                    Text(
+                                        text = mostRepeatedText,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (analysis.maxHistoricalPairCount > 1) FuchsiaAccent else Color.LightGray,
+                                        modifier = Modifier.testTag("most_repeated_count")
+                                    )
+                                    Text(
+                                        text = "Most Repeated",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
                                     )
                                 }
                             }

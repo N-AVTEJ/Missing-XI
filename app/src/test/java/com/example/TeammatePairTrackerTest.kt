@@ -94,4 +94,76 @@ class TeammatePairTrackerTest {
         assertTrue(pairs.contains("player_1|player_3"))
         assertTrue(pairs.contains("player_2|player_3"))
     }
+
+    @Test
+    fun testCandidatePairAnalysisFreshSession() {
+        val candidateTeam = listOf(listOf("player_A", "player_B", "player_C", "player_D"))
+        val history = emptyMap<String, Int>()
+
+        val analysis = TeammatePairTracker.analyzeCandidatePairs(candidateTeam, history)
+
+        assertEquals(6, analysis.totalPairs)
+        assertEquals(6, analysis.newPairs)
+        assertEquals(0, analysis.repeatedPairs)
+        assertEquals(100.0, analysis.newPairPercentage, 0.01)
+        assertEquals(0.0, analysis.repeatedPairPercentage, 0.01)
+        assertEquals(0, analysis.maxHistoricalPairCount)
+    }
+
+    @Test
+    fun testCandidatePairAnalysisOneRepeatedPair() {
+        // History: A-B was teammates once
+        val history = mapOf("player_A|player_B" to 1)
+
+        // Candidate: Team with A, B, E, F
+        val candidateTeam = listOf(listOf("player_A", "player_B", "player_E", "player_F"))
+        val analysis = TeammatePairTracker.analyzeCandidatePairs(candidateTeam, history)
+
+        assertEquals(6, analysis.totalPairs)
+        assertEquals(5, analysis.newPairs)
+        assertEquals(1, analysis.repeatedPairs)
+        assertEquals(83.333, analysis.newPairPercentage, 0.01)
+        assertEquals(16.666, analysis.repeatedPairPercentage, 0.01)
+        assertEquals(1, analysis.maxHistoricalPairCount)
+        assertEquals(1, analysis.historicalRepeatOccurrences)
+    }
+
+    @Test
+    fun testCandidatePairAnalysisHeavilyRepeatedPair() {
+        val history = mapOf(
+            "player_A|player_B" to 5,
+            "player_C|player_D" to 2
+        )
+
+        val candidateTeams = listOf(
+            listOf("player_A", "player_B"),
+            listOf("player_C", "player_D")
+        )
+
+        val analysis = TeammatePairTracker.analyzeCandidatePairs(candidateTeams, history)
+
+        assertEquals(2, analysis.totalPairs)
+        assertEquals(0, analysis.newPairs)
+        assertEquals(2, analysis.repeatedPairs)
+        assertEquals(0.0, analysis.newPairPercentage, 0.01)
+        assertEquals(100.0, analysis.repeatedPairPercentage, 0.01)
+        assertEquals(5, analysis.maxHistoricalPairCount)
+        assertEquals(7, analysis.historicalRepeatOccurrences)
+    }
+
+    @Test
+    fun testCandidatePairAnalysisDoesNotMutateHistory() {
+        val history = mapOf("player_A|player_B" to 2)
+        val candidateTeam = listOf(listOf("player_A", "player_B", "player_C"))
+
+        val analysis = TeammatePairTracker.analyzeCandidatePairs(candidateTeam, history)
+
+        // Ensure returned analysis is correct
+        assertEquals(3, analysis.totalPairs)
+        assertEquals(1, analysis.repeatedPairs)
+
+        // Ensure original history map is unchanged
+        assertEquals(1, history.size)
+        assertEquals(2, history["player_A|player_B"])
+    }
 }
