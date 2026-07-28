@@ -563,6 +563,129 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
                             }
+
+                            Divider(color = Color.White.copy(alpha = 0.08f))
+
+                            // Penalty Analysis Section
+                            val penalty = analysis.penaltyResult
+                            val levelColor = when (penalty.penaltyLevel) {
+                                "Excellent", "Very Low" -> NeonGreen
+                                "Low" -> NeonBlue
+                                "Medium" -> GoldStar
+                                else -> FuchsiaAccent
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "PENALTY ANALYSIS",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.LightGray,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = penalty.penaltyLevel.uppercase(),
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = levelColor,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(levelColor.copy(alpha = 0.15f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        .testTag("penalty_level")
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Total Penalty
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${penalty.totalPenalty}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (penalty.totalPenalty == 0) NeonGreen else levelColor,
+                                        modifier = Modifier.testTag("total_penalty")
+                                    )
+                                    Text(
+                                        text = "Total Penalty",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+
+                                Divider(
+                                    modifier = Modifier
+                                        .height(28.dp)
+                                        .width(1.dp),
+                                    color = Color.White.copy(alpha = 0.1f)
+                                )
+
+                                // Average Penalty
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    val avgText = if (penalty.averagePenalty % 1.0 == 0.0) {
+                                        "${penalty.averagePenalty.toInt()}"
+                                    } else {
+                                        String.format(java.util.Locale.US, "%.1f", penalty.averagePenalty)
+                                    }
+                                    Text(
+                                        text = avgText,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        modifier = Modifier.testTag("average_penalty")
+                                    )
+                                    Text(
+                                        text = "Average Penalty",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+
+                                Divider(
+                                    modifier = Modifier
+                                        .height(28.dp)
+                                        .width(1.dp),
+                                    color = Color.White.copy(alpha = 0.1f)
+                                )
+
+                                // Highest Pair Penalty
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${penalty.highestPairPenalty}×",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (penalty.highestPairPenalty > 1) FuchsiaAccent else Color.LightGray,
+                                        modifier = Modifier.testTag("highest_pair_penalty")
+                                    )
+                                    Text(
+                                        text = "Highest Penalty",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
                         }
                     }
                 }

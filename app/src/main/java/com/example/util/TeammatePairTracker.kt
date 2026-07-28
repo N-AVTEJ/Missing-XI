@@ -21,6 +21,23 @@ data class CandidatePairDetail(
     val isRepeated: Boolean
 )
 
+data class PairPenaltyDetail(
+    val pairKey: String,
+    val player1Id: String,
+    val player2Id: String,
+    val previousCount: Int,
+    val penalty: Int
+)
+
+data class CandidatePenaltyResult(
+    val totalPenalty: Int = 0,
+    val pairPenaltyCount: Int = 0,
+    val highestPairPenalty: Int = 0,
+    val averagePenalty: Double = 0.0,
+    val penaltyLevel: String = "Excellent",
+    val pairBreakdown: List<PairPenaltyDetail> = emptyList()
+)
+
 data class CandidatePairAnalysis(
     val totalPairs: Int = 0,
     val newPairs: Int = 0,
@@ -29,7 +46,8 @@ data class CandidatePairAnalysis(
     val newPairPercentage: Double = 0.0,
     val repeatedPairPercentage: Double = 0.0,
     val maxHistoricalPairCount: Int = 0,
-    val pairDetails: List<CandidatePairDetail> = emptyList()
+    val pairDetails: List<CandidatePairDetail> = emptyList(),
+    val penaltyResult: CandidatePenaltyResult = CandidatePenaltyResult()
 )
 
 object TeammatePairTracker {
@@ -168,6 +186,8 @@ object TeammatePairTracker {
         val newPairPercentage = if (totalPairs > 0) (newPairs.toDouble() / totalPairs.toDouble()) * 100.0 else 0.0
         val repeatedPairPercentage = if (totalPairs > 0) (repeatedPairs.toDouble() / totalPairs.toDouble()) * 100.0 else 0.0
 
+        val penaltyResult = calculateCandidatePenalty(teamsPlayerIds, teammatePairCounts)
+
         return CandidatePairAnalysis(
             totalPairs = totalPairs,
             newPairs = newPairs,
@@ -176,7 +196,88 @@ object TeammatePairTracker {
             newPairPercentage = newPairPercentage,
             repeatedPairPercentage = repeatedPairPercentage,
             maxHistoricalPairCount = maxHistoricalPairCount,
-            pairDetails = pairDetails
+            pairDetails = pairDetails,
+            penaltyResult = penaltyResult
+        )
+    }
+
+    /**
+     * Returns a human-readable penalty level based on total penalty score.
+     */
+    fun getPenaltyLevel(totalPenalty: Int): String {
+        return when {
+            totalPenalty == 0 -> "Excellent"
+            totalPenalty in 1..5 -> "Very Low"
+            totalPenalty in 6..15 -> "Low"
+            totalPenalty in 16..30 -> "Medium"
+            totalPenalty in 31..60 -> "High"
+            else -> "Very High"
+        }
+    }
+
+    /**
+     * Calculates average penalty per repeated pair safely.
+     */
+    fun calculateAveragePenalty(totalPenalty: Int, pairPenaltyCount: Int): Double {
+        if (pairPenaltyCount <= 0) return 0.0
+        return totalPenalty.toDouble() / pairPenaltyCount.toDouble()
+    }
+
+    /**
+     * Calculates candidate penalty metrics and breakdown based on teammate pair history.
+     * READ-ONLY: Does NOT mutate teammatePairCounts.
+     */
+    fun calculateCandidatePenalty(
+        teamsPlayerIds: List<List<String>>,
+        teammatePairCounts: Map<String, Int>
+    ): CandidatePenaltyResult {
+        val candidatePairKeys = mutableListOf<String>()
+        for (teamPlayerIds in teamsPlayerIds) {
+            candidatePairKeys.addAll(getTeamPairs(teamPlayerIds))
+        }
+
+        if (candidatePairKeys.isEmpty()) {
+            return CandidatePenaltyResult()
+        }
+
+        var totalPenalty = 0
+        var highestPairPenalty = 0
+        val pairBreakdown = mutableListOf<PairPenaltyDetail>()
+
+        for (pairKey in candidatePairKeys) {
+            val prevCount = teammatePairCounts[pairKey] ?: 0
+            if (prevCount > 0) {
+                val penalty = prevCount
+                totalPenalty += penalty
+                if (penalty > highestPairPenalty) {
+                    highestPairPenalty = penalty
+                }
+                val parts = pairKey.split("|")
+                val p1 = parts.getOrElse(0) { "" }
+                val p2 = parts.getOrElse(1) { "" }
+                pairBreakdown.add(
+                    PairPenaltyDetail(
+                        pairKey = pairKey,
+                        player1Id = p1,
+                        player2Id = p2,
+                        previousCount = prevCount,
+                        penalty = penalty
+                    )
+                )
+            }
+        }
+
+        val pairPenaltyCount = pairBreakdown.size
+        val averagePenalty = calculateAveragePenalty(totalPenalty, pairPenaltyCount)
+        val penaltyLevel = getPenaltyLevel(totalPenalty)
+
+        return CandidatePenaltyResult(
+            totalPenalty = totalPenalty,
+            pairPenaltyCount = pairPenaltyCount,
+            highestPairPenalty = highestPairPenalty,
+            averagePenalty = averagePenalty,
+            penaltyLevel = penaltyLevel,
+            pairBreakdown = pairBreakdown
         )
     }
 }

@@ -166,4 +166,103 @@ class TeammatePairTrackerTest {
         assertEquals(1, history.size)
         assertEquals(2, history["player_A|player_B"])
     }
+
+    @Test
+    fun testPenaltyScenario1_NoHistory_ZeroPenalty() {
+        val history = mapOf("player_A|player_B" to 0)
+        val candidateTeam = listOf(listOf("player_A", "player_B"))
+
+        val penalty = TeammatePairTracker.calculateCandidatePenalty(candidateTeam, history)
+
+        assertEquals(0, penalty.totalPenalty)
+        assertEquals(0, penalty.pairPenaltyCount)
+        assertEquals(0, penalty.highestPairPenalty)
+        assertEquals(0.0, penalty.averagePenalty, 0.01)
+        assertEquals("Excellent", penalty.penaltyLevel)
+        assertTrue(penalty.pairBreakdown.isEmpty())
+    }
+
+    @Test
+    fun testPenaltyScenario2_CountOne_PenaltyOne() {
+        val history = mapOf("player_A|player_B" to 1)
+        val candidateTeam = listOf(listOf("player_A", "player_B"))
+
+        val penalty = TeammatePairTracker.calculateCandidatePenalty(candidateTeam, history)
+
+        assertEquals(1, penalty.totalPenalty)
+        assertEquals(1, penalty.pairPenaltyCount)
+        assertEquals(1, penalty.highestPairPenalty)
+        assertEquals(1.0, penalty.averagePenalty, 0.01)
+        assertEquals("Very Low", penalty.penaltyLevel)
+        assertEquals(1, penalty.pairBreakdown.size)
+        assertEquals("player_A|player_B", penalty.pairBreakdown[0].pairKey)
+        assertEquals(1, penalty.pairBreakdown[0].penalty)
+    }
+
+    @Test
+    fun testPenaltyScenario3_CountFive_PenaltyFive() {
+        val history = mapOf("player_A|player_B" to 5)
+        val candidateTeam = listOf(listOf("player_A", "player_B"))
+
+        val penalty = TeammatePairTracker.calculateCandidatePenalty(candidateTeam, history)
+
+        assertEquals(5, penalty.totalPenalty)
+        assertEquals(1, penalty.pairPenaltyCount)
+        assertEquals(5, penalty.highestPairPenalty)
+        assertEquals(5.0, penalty.averagePenalty, 0.01)
+        assertEquals("Very Low", penalty.penaltyLevel)
+    }
+
+    @Test
+    fun testPenaltyScenario4_MultiplePairs_TotalHighestAverageAndLevel() {
+        val history = mapOf(
+            "player_A|player_B" to 5,
+            "player_C|player_D" to 3
+        )
+        val candidateTeams = listOf(
+            listOf("player_A", "player_B"),
+            listOf("player_C", "player_D")
+        )
+
+        val penalty = TeammatePairTracker.calculateCandidatePenalty(candidateTeams, history)
+
+        assertEquals(8, penalty.totalPenalty)
+        assertEquals(2, penalty.pairPenaltyCount)
+        assertEquals(5, penalty.highestPairPenalty)
+        assertEquals(4.0, penalty.averagePenalty, 0.01)
+        assertEquals("Low", penalty.penaltyLevel)
+        assertEquals(2, penalty.pairBreakdown.size)
+    }
+
+    @Test
+    fun testPenaltyScenario5_FreshSession_ZeroPenalty() {
+        val candidateTeams = listOf(
+            listOf("player_A", "player_B", "player_C"),
+            listOf("player_D", "player_E", "player_F")
+        )
+
+        val penalty = TeammatePairTracker.calculateCandidatePenalty(candidateTeams, emptyMap())
+
+        assertEquals(0, penalty.totalPenalty)
+        assertEquals(0, penalty.pairPenaltyCount)
+        assertEquals(0, penalty.highestPairPenalty)
+        assertEquals(0.0, penalty.averagePenalty, 0.01)
+        assertEquals("Excellent", penalty.penaltyLevel)
+        assertTrue(penalty.pairBreakdown.isEmpty())
+    }
+
+    @Test
+    fun testPenaltyLevelsMapping() {
+        assertEquals("Excellent", TeammatePairTracker.getPenaltyLevel(0))
+        assertEquals("Very Low", TeammatePairTracker.getPenaltyLevel(1))
+        assertEquals("Very Low", TeammatePairTracker.getPenaltyLevel(5))
+        assertEquals("Low", TeammatePairTracker.getPenaltyLevel(6))
+        assertEquals("Low", TeammatePairTracker.getPenaltyLevel(15))
+        assertEquals("Medium", TeammatePairTracker.getPenaltyLevel(16))
+        assertEquals("Medium", TeammatePairTracker.getPenaltyLevel(30))
+        assertEquals("High", TeammatePairTracker.getPenaltyLevel(31))
+        assertEquals("High", TeammatePairTracker.getPenaltyLevel(60))
+        assertEquals("Very High", TeammatePairTracker.getPenaltyLevel(61))
+        assertEquals("Very High", TeammatePairTracker.getPenaltyLevel(100))
+    }
 }
