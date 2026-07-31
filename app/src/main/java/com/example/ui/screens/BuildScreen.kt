@@ -12,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -96,7 +97,7 @@ fun BuildScreen(viewModel: AppViewModel, onNavigateToLibrary: () -> Unit) {
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(16.dp)
                     ) {
-                        Icon(Icons.Default.LibraryBooks, contentDescription = "Library", tint = NeonBlue, modifier = Modifier.size(32.dp))
+                        Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = "Library", tint = NeonBlue, modifier = Modifier.size(32.dp))
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
                             Text("Select From Player Library", color = NeonBlue, fontWeight = FontWeight.Bold, fontSize = 18.sp)
@@ -238,7 +239,7 @@ fun BuildScreen(viewModel: AppViewModel, onNavigateToLibrary: () -> Unit) {
                 ) { listIndex ->
                     val (originalIndex, playerName) = filteredPlayers[listIndex]
                     
-                    Box(modifier = Modifier.animateItemPlacement()) {
+                    Box(modifier = Modifier.animateItem()) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier

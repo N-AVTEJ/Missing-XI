@@ -130,7 +130,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                             }
                         }
 
-                        Divider(color = Color.White.copy(alpha = 0.08f))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
                         OutlinedTextField(
                             value = numberOfTeams,
@@ -322,7 +322,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
 
-                                Divider(
+                                HorizontalDivider(
                                     modifier = Modifier
                                         .height(28.dp)
                                         .width(1.dp),
@@ -349,7 +349,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
 
-                                Divider(
+                                HorizontalDivider(
                                     modifier = Modifier
                                         .height(28.dp)
                                         .width(1.dp),
@@ -451,7 +451,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                 )
                             }
 
-                            Divider(color = Color.White.copy(alpha = 0.08f))
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
                             Row(
                                 modifier = Modifier
@@ -480,7 +480,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
 
-                                Divider(
+                                HorizontalDivider(
                                     modifier = Modifier
                                         .height(28.dp)
                                         .width(1.dp),
@@ -507,7 +507,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
 
-                                Divider(
+                                HorizontalDivider(
                                     modifier = Modifier
                                         .height(28.dp)
                                         .width(1.dp),
@@ -535,7 +535,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
 
-                                Divider(
+                                HorizontalDivider(
                                     modifier = Modifier
                                         .height(28.dp)
                                         .width(1.dp),
@@ -564,7 +564,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                 }
                             }
 
-                            Divider(color = Color.White.copy(alpha = 0.08f))
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
                             // Penalty Analysis Section
                             val penalty = analysis.penaltyResult
@@ -627,7 +627,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
 
-                                Divider(
+                                HorizontalDivider(
                                     modifier = Modifier
                                         .height(28.dp)
                                         .width(1.dp),
@@ -659,7 +659,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
 
-                                Divider(
+                                HorizontalDivider(
                                     modifier = Modifier
                                         .height(28.dp)
                                         .width(1.dp),
@@ -734,7 +734,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                 )
                             }
 
-                            Divider(color = Color.White.copy(alpha = 0.08f))
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
                             Row(
                                 modifier = Modifier
@@ -763,7 +763,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
 
-                                Divider(
+                                HorizontalDivider(
                                     modifier = Modifier
                                         .height(28.dp)
                                         .width(1.dp),
@@ -790,7 +790,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
 
-                                Divider(
+                                HorizontalDivider(
                                     modifier = Modifier
                                         .height(28.dp)
                                         .width(1.dp),
@@ -817,7 +817,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
 
-                                Divider(
+                                HorizontalDivider(
                                     modifier = Modifier
                                         .height(28.dp)
                                         .width(1.dp),
@@ -948,7 +948,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                 }
                             }
 
-                            Divider(color = Color.White.copy(alpha = 0.08f))
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 team.players.forEachIndexed { _, player ->
@@ -1062,7 +1062,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                 )
                             }
 
-                            Divider(color = Color.White.copy(alpha = 0.08f))
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(

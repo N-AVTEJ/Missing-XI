@@ -180,7 +180,7 @@ fun HistoryScreen(viewModel: AppViewModel) {
                                             )
                                         }
 
-                                        Divider(color = Color.White.copy(alpha = 0.08f))
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Icon(

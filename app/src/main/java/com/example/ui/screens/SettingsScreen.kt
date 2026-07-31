@@ -105,7 +105,7 @@ fun SettingsScreen(viewModel: AppViewModel) {
                             }
                         }
 
-                        Divider(color = Color.White.copy(alpha = 0.08f))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
                         if (currentUser != null) {
                             Text(
@@ -173,7 +173,7 @@ fun SettingsScreen(viewModel: AppViewModel) {
                             )
                         }
 
-                        Divider(color = Color.White.copy(alpha = 0.08f))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
                         Text(
                             text = "Customize the neon glowing boundaries of the stadium pitch:",

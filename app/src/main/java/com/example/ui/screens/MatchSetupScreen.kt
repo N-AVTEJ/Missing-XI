@@ -180,7 +180,7 @@ fun TeamSetupCard(
                 }
             }
 
-            Divider(color = Color.White.copy(alpha = 0.08f))
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
             // Player List with Animations
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
