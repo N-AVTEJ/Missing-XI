@@ -7,10 +7,15 @@ import androidx.room.RoomDatabase
 import com.example.data.model.LineupEntity
 import com.example.data.model.TossEntity
 
-@Database(entities = [LineupEntity::class, TossEntity::class], version = 1, exportSchema = false)
+import com.example.data.model.PlayerEntity
+import com.example.data.model.SessionEntity
+
+@Database(entities = [LineupEntity::class, TossEntity::class, PlayerEntity::class, SessionEntity::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun lineupDao(): LineupDao
     abstract fun tossDao(): TossDao
+    abstract fun playerDao(): PlayerDao
+    abstract fun sessionDao(): SessionDao
 
     companion object {
         @Volatile
@@ -22,7 +27,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "missingxi_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }

@@ -34,7 +34,12 @@ data class PlayerSlot(
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = AppDatabase.getDatabase(application)
-    private val repository = AppRepository(database.lineupDao(), database.tossDao())
+    private val repository = AppRepository(
+        database.lineupDao(),
+        database.tossDao(),
+        database.playerDao(),
+        database.sessionDao()
+    )
     val firebaseService = FirebaseService()
 
     // Database Flows
@@ -43,6 +48,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     val savedTosses: StateFlow<List<TossEntity>> = repository.allTosses
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allActivePlayers = repository.allActivePlayers
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val recentlyUsedPlayers = repository.recentlyUsedPlayers
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val latestSession = MutableStateFlow<com.example.data.model.SessionEntity?>(null)
+
+    init {
+        loadLatestSession()
+    }
+
+    private fun loadLatestSession() {
+        viewModelScope.launch {
+            val session = repository.getLatestSession()
+            latestSession.value = session
+        }
+    }
 
     // Active Builder Draft State
     val teamName = MutableStateFlow("My Dream XI")
@@ -103,6 +127,58 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val buildSearchQuery = MutableStateFlow("")
     val buildDuplicateError = MutableStateFlow<String?>(null)
     val buildEmptyFieldError = MutableStateFlow<String?>(null)
+    val hasStartedBuilding = MutableStateFlow(false)
+
+    fun startBuildingFresh() {
+        hasStartedBuilding.value = true
+        // Keep the default 11 players
+    }
+
+    fun continueWithLastSession() {
+        viewModelScope.launch {
+            val session = latestSession.value ?: return@launch
+            try {
+                val jsonArray = org.json.JSONArray(session.playerIdsJson)
+                val players = mutableListOf<String>()
+                for (i in 0 until jsonArray.length()) {
+                    players.add(jsonArray.getString(i))
+                }
+                if (players.isNotEmpty()) {
+                    buildPlayersList.value = players
+                    buildTotalPlayersInput.value = players.size.toString()
+                    hasStartedBuilding.value = true
+                    validateDuplicates(players)
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    fun addPlayersFromLibrary(players: List<String>) {
+        if (players.isNotEmpty()) {
+            buildPlayersList.value = players
+            buildTotalPlayersInput.value = players.size.toString()
+            hasStartedBuilding.value = true
+            validateDuplicates(players)
+        }
+    }
+
+    fun togglePlayerFavorite(player: com.example.data.model.PlayerEntity) {
+        viewModelScope.launch {
+            repository.updatePlayer(player.copy(isFavorite = !player.isFavorite))
+        }
+    }
+
+    fun archivePlayer(player: com.example.data.model.PlayerEntity) {
+        viewModelScope.launch {
+            repository.updatePlayer(player.copy(isArchived = true))
+        }
+    }
+
+    fun deletePlayer(player: com.example.data.model.PlayerEntity) {
+        viewModelScope.launch {
+            repository.deletePlayer(player.id)
+        }
+    }
 
     fun updateBuildTotalPlayers(total: String) {
         buildTotalPlayersInput.value = total
@@ -402,6 +478,39 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             teammatePairCounts.value,
             acceptedTeamsPlayerIds
         )
+
+        // Save session and players to database
+        viewModelScope.launch {
+            val jsonArray = org.json.JSONArray(activePlayerNames)
+            val dbSession = com.example.data.model.SessionEntity(
+                playerIdsJson = jsonArray.toString(),
+                teamCount = numTeams,
+                timestamp = System.currentTimeMillis()
+            )
+            repository.insertSession(dbSession)
+            loadLatestSession() // Update latest session state
+
+            activePlayerNames.forEach { playerName ->
+                val existingPlayer = repository.getPlayerByName(playerName)
+                if (existingPlayer != null) {
+                    val isJoker = playerName == chosenJoker
+                    repository.updatePlayer(existingPlayer.copy(
+                        lastUsedAt = System.currentTimeMillis(),
+                        totalMatches = existingPlayer.totalMatches + 1,
+                        totalTimesJoker = if (isJoker) existingPlayer.totalTimesJoker + 1 else existingPlayer.totalTimesJoker
+                    ))
+                } else {
+                    val isJoker = playerName == chosenJoker
+                    repository.insertPlayer(
+                        com.example.data.model.PlayerEntity(
+                            displayName = playerName,
+                            totalMatches = 1,
+                            totalTimesJoker = if (isJoker) 1 else 0
+                        )
+                    )
+                }
+            }
+        }
     }
 
     fun clearSessionHistory() {

@@ -101,7 +101,16 @@ fun MainNavigationContainer() {
           )
         }
         composable("build") {
-          BuildScreen(viewModel = viewModel)
+          BuildScreen(
+              viewModel = viewModel,
+              onNavigateToLibrary = { navController.navigate("playerPicker") }
+          )
+        }
+        composable("playerPicker") {
+          PlayerPickerScreen(
+              viewModel = viewModel,
+              onNavigateBack = { navController.popBackStack() }
+          )
         }
         composable("teams") {
           TeamConfigScreen(viewModel = viewModel)

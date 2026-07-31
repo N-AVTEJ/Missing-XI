@@ -31,12 +31,14 @@ import com.example.ui.viewmodel.AppViewModel
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun BuildScreen(viewModel: AppViewModel) {
+fun BuildScreen(viewModel: AppViewModel, onNavigateToLibrary: () -> Unit) {
     val totalPlayersInput by viewModel.buildTotalPlayersInput.collectAsState()
     val playersList by viewModel.buildPlayersList.collectAsState()
     val searchQuery by viewModel.buildSearchQuery.collectAsState()
     val duplicateError by viewModel.buildDuplicateError.collectAsState()
     val emptyFieldError by viewModel.buildEmptyFieldError.collectAsState()
+    val hasStartedBuilding by viewModel.hasStartedBuilding.collectAsState()
+    val latestSession by viewModel.latestSession.collectAsState()
 
     val filteredPlayers = playersList.mapIndexed { index, name -> index to name }
         .filter { it.second.contains(searchQuery, ignoreCase = true) }
@@ -60,7 +62,70 @@ fun BuildScreen(viewModel: AppViewModel) {
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Meta Configuration Card
+            if (!hasStartedBuilding) {
+                // Starter Options
+                if (latestSession != null) {
+                    GlassyCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { viewModel.continueWithLastSession() },
+                        cornerRadius = 16
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Icon(Icons.Default.Restore, contentDescription = "Restore", tint = NeonGreen, modifier = Modifier.size(32.dp))
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column {
+                                Text("Continue With Last Players", color = NeonGreen, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Text("Restore players from your last shuffle", color = Color.Gray, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                GlassyCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToLibrary() },
+                    cornerRadius = 16
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.LibraryBooks, contentDescription = "Library", tint = NeonBlue, modifier = Modifier.size(32.dp))
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text("Select From Player Library", color = NeonBlue, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Text("Choose from your saved players", color = Color.Gray, fontSize = 12.sp)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                GlassyCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.startBuildingFresh() },
+                    cornerRadius = 16
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Create", tint = Color.White, modifier = Modifier.size(32.dp))
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text("Create New Players", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Text("Start fresh and enter names manually", color = Color.Gray, fontSize = 12.sp)
+                        }
+                    }
+                }
+            } else {
+                // Meta Configuration Card
             GlassyCard(
                 modifier = Modifier.fillMaxWidth(),
                 cornerRadius = 24
@@ -248,6 +313,7 @@ fun BuildScreen(viewModel: AppViewModel) {
                     Spacer(modifier = Modifier.height(100.dp))
                 }
             }
+            } // Close else block
         }
     }
 }
