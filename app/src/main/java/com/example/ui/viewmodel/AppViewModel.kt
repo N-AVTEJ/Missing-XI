@@ -59,6 +59,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         loadLatestSession()
+        runDiagnostics()
+    }
+
+    private fun runDiagnostics() {
+        viewModelScope.launch {
+            try {
+                // Wait briefly for initial flows to emit
+                kotlinx.coroutines.delay(1000)
+                
+                val playerCount = allActivePlayers.value.size
+                val tossCount = savedTosses.value.size
+                val lineupCount = savedLineups.value.size
+                val hasSession = if (latestSession.value != null) 1 else 0
+                
+                android.util.Log.d("PersistenceDiagnostics", "Database opened successfully")
+                android.util.Log.d("PersistenceDiagnostics", "Existing player count: $playerCount")
+                android.util.Log.d("PersistenceDiagnostics", "Existing match history (lineups) count: $lineupCount")
+                android.util.Log.d("PersistenceDiagnostics", "Existing match history (tosses) count: $tossCount")
+                android.util.Log.d("PersistenceDiagnostics", "Existing session count: $hasSession")
+                
+                if (playerCount == 0 && lineupCount == 0) {
+                    android.util.Log.d("PersistenceDiagnostics", "Zero records found. This is normal if it is a fresh install or if the app's data was cleared by Android (e.g. uninstallation). Data is stored in private internal storage which is wiped on uninstall.")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("PersistenceDiagnostics", "Error running diagnostics: ${e.message}")
+            }
+        }
     }
 
     private fun loadLatestSession() {
