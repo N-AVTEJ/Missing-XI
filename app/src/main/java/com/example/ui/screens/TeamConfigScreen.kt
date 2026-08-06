@@ -2,6 +2,9 @@ package com.example.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.Build
+
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,6 +15,8 @@ import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Shuffle
@@ -62,6 +67,8 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val generationDiagnostics by viewModel.generationDiagnostics.collectAsState()
     val pairStats by viewModel.pairStatistics.collectAsState()
     val candidatePairAnalysis by viewModel.candidatePairAnalysis.collectAsState()
+    val fairnessScore by viewModel.currentFairnessScore.collectAsState()
+    val fairnessRating by viewModel.currentFairnessRating.collectAsState()
 
     FrostedMeshBackground {
         LazyColumn(
@@ -308,139 +315,18 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                 }
             }
 
-            // Duplicate Detection & Shuffle Stats Display
-            if (currentShuffleNumber > 0 || uniqueTeamsGenerated > 0 || duplicatesPrevented > 0) {
-                item {
-                    GlassyCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("shuffle_stats_card"),
-                        cornerRadius = 16
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Current Shuffle Number
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Text(
-                                        text = if (currentShuffleNumber > 0) "#$currentShuffleNumber" else "-",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = NeonGreen,
-                                        modifier = Modifier.testTag("current_shuffle_number")
-                                    )
-                                    Text(
-                                        text = "Current Shuffle",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
-                                }
-
-                                HorizontalDivider(
-                                    modifier = Modifier
-                                        .height(28.dp)
-                                        .width(1.dp),
-                                    color = Color.White.copy(alpha = 0.1f)
-                                )
-
-                                // Unique Teams Generated
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Text(
-                                        text = "$uniqueTeamsGenerated",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = NeonBlue,
-                                        modifier = Modifier.testTag("unique_teams_generated")
-                                    )
-                                    Text(
-                                        text = "Unique Teams",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
-                                }
-
-                                HorizontalDivider(
-                                    modifier = Modifier
-                                        .height(28.dp)
-                                        .width(1.dp),
-                                    color = Color.White.copy(alpha = 0.1f)
-                                )
-
-                                // Duplicate Prevented
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Text(
-                                        text = "$duplicatesPrevented",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (duplicatesPrevented > 0) GoldStar else Color.LightGray,
-                                        modifier = Modifier.testTag("duplicate_prevented")
-                                    )
-                                    Text(
-                                        text = "Duplicate Prevented",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
-                                }
-                            }
-
-                            if (duplicatesPrevented > 0) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(GoldStar.copy(alpha = 0.12f))
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Warning,
-                                        contentDescription = "Duplicate Prevented",
-                                        tint = GoldStar,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Duplicate Prevented ($duplicatesPrevented detected)",
-                                        color = GoldStar,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Candidate Pair Analysis Display
+            // Shuffle Summary
             val analysis = candidatePairAnalysis
             if (analysis != null) {
                 item {
                     GlassyCard(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("pair_analysis_card"),
+                            .testTag("shuffle_summary_card"),
                         cornerRadius = 16
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            // Header: Fairness Score & Rating
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -449,264 +335,192 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         imageVector = Icons.Default.Analytics,
-                                        contentDescription = "Pair Analysis",
+                                        contentDescription = "Fairness Engine",
                                         tint = NeonBlue,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(20.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "PAIR ANALYSIS",
-                                        style = MaterialTheme.typography.labelSmall,
+                                        text = "FAIRNESS SCORE",
+                                        style = MaterialTheme.typography.labelMedium,
                                         color = NeonBlue,
                                         fontWeight = FontWeight.Bold,
                                         letterSpacing = 1.sp
                                     )
                                 }
+                                val ratingColor = when (fairnessRating) {
+                                    "Excellent", "Very Good" -> NeonGreen
+                                    "Good" -> NeonBlue
+                                    "Average" -> GoldStar
+                                    else -> FuchsiaAccent
+                                }
                                 Text(
-                                    text = "${analysis.totalPairs} PAIRS DETECTED",
-                                    fontSize = 9.sp,
+                                    text = fairnessRating.uppercase(),
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color.LightGray,
+                                    color = ratingColor,
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(Color.White.copy(alpha = 0.1f))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(ratingColor.copy(alpha = 0.15f))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        .testTag("fairness_rating")
                                 )
                             }
-
-                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-
+                            
+                            // Score Display
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val ratingColor = when (fairnessRating) {
+                                    "Excellent", "Very Good" -> NeonGreen
+                                    "Good" -> NeonBlue
+                                    "Average" -> GoldStar
+                                    else -> FuchsiaAccent
+                                }
+                                Text(
+                                    text = "$fairnessScore",
+                                    style = MaterialTheme.typography.displayMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ratingColor,
+                                    modifier = Modifier.testTag("fairness_score")
+                                )
+                                Text(
+                                    text = "/100",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = Color.Gray,
+                                    modifier = Modifier.align(Alignment.Bottom).padding(bottom = 8.dp)
+                                )
+                            }
+                            
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                            
+                            // Stats Grid: New Pairs, Repeated Pairs, Total Penalty
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // New Pairs
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Text(
-                                        text = "${analysis.newPairs}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = NeonGreen,
-                                        modifier = Modifier.testTag("new_pairs_count")
-                                    )
-                                    Text(
-                                        text = "New Pairs",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("$fairnessScore", style = MaterialTheme.typography.titleMedium, color = Color.Transparent, fontSize = 0.sp) // hack for alignment? No just use fixed height or ignore
+                                    Text("${analysis.newPairs}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NeonGreen)
+                                    Text("New Pairs", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
                                 }
-
-                                HorizontalDivider(
-                                    modifier = Modifier
-                                        .height(28.dp)
-                                        .width(1.dp),
-                                    color = Color.White.copy(alpha = 0.1f)
-                                )
-
-                                // Repeated Pairs
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Text(
-                                        text = "${analysis.repeatedPairs}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (analysis.repeatedPairs > 0) GoldStar else Color.LightGray,
-                                        modifier = Modifier.testTag("repeated_pairs_count")
-                                    )
-                                    Text(
-                                        text = "Repeated Pairs",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
+                                HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${analysis.repeatedPairs}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (analysis.repeatedPairs > 0) GoldStar else Color.LightGray)
+                                    Text("Repeated Pairs", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
                                 }
-
-                                HorizontalDivider(
-                                    modifier = Modifier
-                                        .height(28.dp)
-                                        .width(1.dp),
-                                    color = Color.White.copy(alpha = 0.1f)
-                                )
-
-                                // New Pair Rate
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    val rateText = "${analysis.newPairPercentage.toInt()}%"
-                                    Text(
-                                        text = rateText,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = NeonBlue,
-                                        modifier = Modifier.testTag("new_pair_rate")
-                                    )
-                                    Text(
-                                        text = "New Pair Rate",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
-                                }
-
-                                HorizontalDivider(
-                                    modifier = Modifier
-                                        .height(28.dp)
-                                        .width(1.dp),
-                                    color = Color.White.copy(alpha = 0.1f)
-                                )
-
-                                // Most Repeated
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    val mostRepeatedText = "${analysis.maxHistoricalPairCount}×"
-                                    Text(
-                                        text = mostRepeatedText,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (analysis.maxHistoricalPairCount > 1) FuchsiaAccent else Color.LightGray,
-                                        modifier = Modifier.testTag("most_repeated_count")
-                                    )
-                                    Text(
-                                        text = "Most Repeated",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
+                                HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    val penalty = analysis.penaltyResult.totalPenalty
+                                    Text("$penalty", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (penalty > 0) FuchsiaAccent else NeonGreen)
+                                    Text("Total Penalty", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
                                 }
                             }
-
+                            
                             HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
-                            // Penalty Analysis Section
-                            val penalty = analysis.penaltyResult
-                            val levelColor = when (penalty.penaltyLevel) {
-                                "Excellent", "Very Low" -> NeonGreen
-                                "Low" -> NeonBlue
-                                "Medium" -> GoldStar
-                                else -> FuchsiaAccent
-                            }
-
+                            // Additional Info Grid: Shuffle Number, Unique Teams, Duplicates, Joker
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(if (currentShuffleNumber > 0) "#$currentShuffleNumber" else "-", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                                    Text("Shuffle No.", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+                                }
+                                HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("$uniqueTeamsGenerated", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NeonBlue)
+                                    Text("Unique Teams", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+                                }
+                                HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("$duplicatesPrevented", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (duplicatesPrevented > 0) GoldStar else Color.LightGray)
+                                    Text("Duplicates", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+                                }
+                                if (jokerPlayer != null) {
+                                    HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("$jokerPlayer", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = FuchsiaAccent, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.widthIn(max=60.dp))
+                                        Text("Current Joker", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Developer Debug Section (Collapsible)
+            if (generationDiagnostics != null) {
+                item {
+                    val diag = generationDiagnostics!!
+                    var isDebugExpanded by remember { androidx.compose.runtime.mutableStateOf(false) }
+                    GlassyCard(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        cornerRadius = 16
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { isDebugExpanded = !isDebugExpanded }
+                                    .padding(16.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "PENALTY ANALYSIS",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = Color.LightGray,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp
-                                )
-                                Text(
-                                    text = penalty.penaltyLevel.uppercase(),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = levelColor,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(levelColor.copy(alpha = 0.15f))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                        .testTag("penalty_level")
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Build, contentDescription = "Diagnostics", tint = NeonGreen, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Developer Debug Mode", color = NeonGreen, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                                Icon(
+                                    imageVector = if (isDebugExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = "Expand/Collapse",
+                                    tint = NeonGreen
                                 )
                             }
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Total Penalty
+                            
+                            AnimatedVisibility(visible = isDebugExpanded) {
                                 Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text(
-                                        text = "${penalty.totalPenalty}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (penalty.totalPenalty == 0) NeonGreen else levelColor,
-                                        modifier = Modifier.testTag("total_penalty")
-                                    )
-                                    Text(
-                                        text = "Total Penalty",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
-                                }
-
-                                HorizontalDivider(
-                                    modifier = Modifier
-                                        .height(28.dp)
-                                        .width(1.dp),
-                                    color = Color.White.copy(alpha = 0.1f)
-                                )
-
-                                // Average Penalty
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    val avgText = if (penalty.averagePenalty % 1.0 == 0.0) {
-                                        "${penalty.averagePenalty.toInt()}"
-                                    } else {
-                                        String.format(java.util.Locale.US, "%.1f", penalty.averagePenalty)
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Candidates Generated:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("${diag.candidatesGenerated}", color = Color.White, fontSize = 12.sp)
                                     }
-                                    Text(
-                                        text = avgText,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        modifier = Modifier.testTag("average_penalty")
-                                    )
-                                    Text(
-                                        text = "Average Penalty",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
-                                }
-
-                                HorizontalDivider(
-                                    modifier = Modifier
-                                        .height(28.dp)
-                                        .width(1.dp),
-                                    color = Color.White.copy(alpha = 0.1f)
-                                )
-
-                                // Highest Pair Penalty
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Text(
-                                        text = "${penalty.highestPairPenalty}×",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (penalty.highestPairPenalty > 1) FuchsiaAccent else Color.LightGray,
-                                        modifier = Modifier.testTag("highest_pair_penalty")
-                                    )
-                                    Text(
-                                        text = "Highest Penalty",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.Gray,
-                                        fontSize = 10.sp
-                                    )
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Best Candidate Rank:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("${diag.bestCandidateRank}", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Lowest Penalty Found:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("${diag.lowestPenaltyFound}", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Highest Penalty Found:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("${diag.highestPenaltyFound}", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Average Candidate Penalty:", color = Color.Gray, fontSize = 12.sp)
+                                        Text(String.format("%.2f", diag.averageCandidatePenalty), color = Color.White, fontSize = 12.sp)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Winning Candidate Penalty:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("${diag.winningCandidatePenalty}", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Winning Candidate Fairness Score:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("${diag.winningCandidateFairnessScore}", color = Color.White, fontSize = 12.sp)
+                                    }
                                 }
                             }
                         }

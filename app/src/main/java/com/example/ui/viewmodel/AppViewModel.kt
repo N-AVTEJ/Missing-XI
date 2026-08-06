@@ -285,7 +285,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val candidatesRejected: Int,
         val retryCount: Int,
         val generationTimeMs: Long,
-        val averageCandidatePenalty: Double
+        val averageCandidatePenalty: Double,
+        val bestCandidateRank: Int = 1,
+        val lowestPenaltyFound: Int = 0,
+        val highestPenaltyFound: Int = 0,
+        val winningCandidatePenalty: Int = 0,
+        val winningCandidateFairnessScore: Int = 0
     )
 
     data class GeneratedCandidate(
@@ -297,7 +302,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val penaltyAnalysis: com.example.util.CandidatePenaltyResult,
         val updatedCycle: List<String>,
         val updatedHistory: List<String>,
-        val generatedAt: Long = System.currentTimeMillis()
+        val generatedAt: Long = System.currentTimeMillis(),
+        val fairnessScore: Int = 0,
+        val fairnessRating: String = ""
     )
 
     val isGeneratingCandidates = MutableStateFlow(false)
@@ -333,6 +340,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PairStatistics())
 
     val candidatePairAnalysis = MutableStateFlow<CandidatePairAnalysis?>(null)
+    val currentFairnessScore = MutableStateFlow(0)
+    val currentFairnessRating = MutableStateFlow("")
 
     val generatedSignaturesSet = MutableStateFlow<Set<String>>(emptySet())
     val duplicatesPrevented = MutableStateFlow(0)
@@ -500,6 +509,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         currentPairCounts
                     )
                     val penaltyAnalysis = pairAnalysis.penaltyResult 
+                    val fScore = com.example.util.TeammatePairTracker.calculateFairnessScore(pairAnalysis)
+                    val fRating = com.example.util.TeammatePairTracker.getFairnessRating(fScore)
                     
                     generatedCandidates.add(
                         GeneratedCandidate(
@@ -510,7 +521,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             pairAnalysis = pairAnalysis,
                             penaltyAnalysis = penaltyAnalysis,
                             updatedCycle = tempCycle,
-                            updatedHistory = tempHistory
+                            updatedHistory = tempHistory,
+                            fairnessScore = fScore,
+                            fairnessRating = fRating
                         )
                     )
                     candidateGenerationProgress.value = generatedCandidates.size
@@ -518,24 +531,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             val endTime = System.currentTimeMillis()
-            val avgPenalty = if (generatedCandidates.isNotEmpty()) generatedCandidates.map { it.penaltyAnalysis.totalPenalty }.average() else 0.0
+            
+            // Randomize tied candidates by shuffling before sorting
+            generatedCandidates.shuffle()
+            generatedCandidates.sortWith(Comparator { c1, c2 ->
+                var cmp = c1.penaltyAnalysis.totalPenalty.compareTo(c2.penaltyAnalysis.totalPenalty)
+                if (cmp != 0) return@Comparator cmp
+                cmp = c2.pairAnalysis.newPairs.compareTo(c1.pairAnalysis.newPairs)
+                if (cmp != 0) return@Comparator cmp
+                cmp = c1.penaltyAnalysis.highestPairPenalty.compareTo(c2.penaltyAnalysis.highestPairPenalty)
+                cmp
+            })
 
+            val avgPenalty = if (generatedCandidates.isNotEmpty()) generatedCandidates.map { it.penaltyAnalysis.totalPenalty }.average() else 0.0
+            val lowestPenalty = generatedCandidates.minOfOrNull { it.penaltyAnalysis.totalPenalty } ?: 0
+            val highestPenalty = generatedCandidates.maxOfOrNull { it.penaltyAnalysis.totalPenalty } ?: 0
+            val chosen = generatedCandidates.firstOrNull()
+            
             generationDiagnostics.value = GenerationDiagnostics(
                 candidatesGenerated = generatedCandidates.size,
                 candidatesRejected = candidatesRejected,
                 retryCount = retryCount,
                 generationTimeMs = endTime - startTime,
-                averageCandidatePenalty = avgPenalty
+                averageCandidatePenalty = avgPenalty,
+                bestCandidateRank = 1,
+                lowestPenaltyFound = lowestPenalty,
+                highestPenaltyFound = highestPenalty,
+                winningCandidatePenalty = chosen?.penaltyAnalysis?.totalPenalty ?: 0,
+                winningCandidateFairnessScore = chosen?.fairnessScore ?: 0
             )
 
             candidatesGeneratedList.value = generatedCandidates
 
-            // Back to main thread for applying the "first" candidate as the chosen one for now
+            // Back to main thread for applying the chosen candidate
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                if (generatedCandidates.isNotEmpty()) {
-                    val chosen = generatedCandidates.first()
+                if (chosen != null) {
                     applyCandidateToState(chosen, activePlayerNames, numTeams, existingSigs)
-                    duplicatesPrevented.value += candidatesRejected // Just to keep the existing stats accurate
+                    duplicatesPrevented.value += candidatesRejected 
                 }
                 isGeneratingCandidates.value = false
             }
@@ -571,6 +603,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         sessionHistory.value = listOf(session) + sessionHistory.value
 
         candidatePairAnalysis.value = chosen.pairAnalysis
+        currentFairnessScore.value = chosen.fairnessScore
+        currentFairnessRating.value = chosen.fairnessRating
 
         // Update Teammate Pair Counts ONLY after accepted shuffle and analysis
         val acceptedTeamsPlayerIds = chosen.teams.map { it.playerIds }

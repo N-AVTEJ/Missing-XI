@@ -1,10 +1,5 @@
 package com.example.util
 
-data class Player(
-    val id: String,
-    val name: String
-)
-
 data class PairStatistics(
     val totalPairsRecorded: Int = 0,
     val uniquePairsCount: Int = 0,
@@ -52,10 +47,6 @@ data class CandidatePairAnalysis(
 
 object TeammatePairTracker {
 
-    /**
-     * Creates a canonical pair key by sorting two player IDs lexicographically.
-     * Example: createPairKey("player_7", "player_2") -> "player_2|player_7"
-     */
     fun createPairKey(idA: String, idB: String): String {
         require(idA != idB) { "A player cannot form a pair with themselves: $idA" }
         return if (idA < idB) {
@@ -65,10 +56,6 @@ object TeammatePairTracker {
         }
     }
 
-    /**
-     * Generates all unique teammate pair keys for players in a single team.
-     * Number of pairs generated = k * (k - 1) / 2
-     */
     fun getTeamPairs(playerIds: List<String>): List<String> {
         val pairs = mutableListOf<String>()
         val distinctIds = playerIds.distinct()
@@ -81,9 +68,6 @@ object TeammatePairTracker {
         return pairs
     }
 
-    /**
-     * Increments pair counts for all teammate pairs across accepted teams.
-     */
     fun updateTeammatePairCounts(
         currentCounts: Map<String, Int>,
         acceptedTeamsPlayerIds: List<List<String>>
@@ -98,18 +82,12 @@ object TeammatePairTracker {
         return updatedMap
     }
 
-    /**
-     * Gets the count of how many times two players have been teammates.
-     */
     fun getPairCount(counts: Map<String, Int>, idA: String, idB: String): Int {
         if (idA == idB) return 0
         val pairKey = createPairKey(idA, idB)
         return counts[pairKey] ?: 0
     }
 
-    /**
-     * Calculates pair statistics from the teammate pair counts map.
-     */
     fun calculatePairStatistics(counts: Map<String, Int>): PairStatistics {
         val activeEntries = counts.filterValues { it > 0 }
         if (activeEntries.isEmpty()) {
@@ -130,10 +108,6 @@ object TeammatePairTracker {
         )
     }
 
-    /**
-     * Analyzes candidate arrangement teammate pairs against existing teammate pair history.
-     * READ-ONLY: Does NOT mutate or update teammatePairCounts.
-     */
     fun analyzeCandidatePairs(
         teamsPlayerIds: List<List<String>>,
         teammatePairCounts: Map<String, Int>
@@ -152,13 +126,13 @@ object TeammatePairTracker {
         var repeatedPairs = 0
         var historicalRepeatOccurrences = 0
         var maxHistoricalPairCount = 0
-
         val pairDetails = mutableListOf<CandidatePairDetail>()
 
         for (pairKey in candidatePairKeys) {
             val parts = pairKey.split("|")
             val p1 = parts.getOrElse(0) { "" }
             val p2 = parts.getOrElse(1) { "" }
+
             val prevCount = teammatePairCounts[pairKey] ?: 0
             val isRep = prevCount > 0
 
@@ -201,9 +175,6 @@ object TeammatePairTracker {
         )
     }
 
-    /**
-     * Returns a human-readable penalty level based on total penalty score.
-     */
     fun getPenaltyLevel(totalPenalty: Int): String {
         return when {
             totalPenalty == 0 -> "Excellent"
@@ -215,18 +186,11 @@ object TeammatePairTracker {
         }
     }
 
-    /**
-     * Calculates average penalty per repeated pair safely.
-     */
     fun calculateAveragePenalty(totalPenalty: Int, pairPenaltyCount: Int): Double {
         if (pairPenaltyCount <= 0) return 0.0
         return totalPenalty.toDouble() / pairPenaltyCount.toDouble()
     }
 
-    /**
-     * Calculates candidate penalty metrics and breakdown based on teammate pair history.
-     * READ-ONLY: Does NOT mutate teammatePairCounts.
-     */
     fun calculateCandidatePenalty(
         teamsPlayerIds: List<List<String>>,
         teammatePairCounts: Map<String, Int>
@@ -252,9 +216,11 @@ object TeammatePairTracker {
                 if (penalty > highestPairPenalty) {
                     highestPairPenalty = penalty
                 }
+
                 val parts = pairKey.split("|")
                 val p1 = parts.getOrElse(0) { "" }
                 val p2 = parts.getOrElse(1) { "" }
+
                 pairBreakdown.add(
                     PairPenaltyDetail(
                         pairKey = pairKey,
@@ -279,5 +245,26 @@ object TeammatePairTracker {
             penaltyLevel = penaltyLevel,
             pairBreakdown = pairBreakdown
         )
+    }
+
+    fun calculateFairnessScore(analysis: CandidatePairAnalysis): Int {
+        if (analysis.totalPairs == 0) return 100
+        if (analysis.penaltyResult.totalPenalty == 0) return 100
+        
+        val newP = analysis.newPairs.toDouble()
+        val penalty = analysis.penaltyResult.totalPenalty.toDouble()
+        
+        val score = (newP / (newP + penalty)) * 100.0
+        return score.toInt().coerceIn(0, 100)
+    }
+
+    fun getFairnessRating(score: Int): String {
+        return when {
+            score >= 98 -> "Excellent"
+            score >= 90 -> "Very Good"
+            score >= 80 -> "Good"
+            score >= 70 -> "Average"
+            else -> "Poor"
+        }
     }
 }
