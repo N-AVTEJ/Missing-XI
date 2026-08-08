@@ -14,10 +14,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Person
@@ -67,8 +65,10 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val generationDiagnostics by viewModel.generationDiagnostics.collectAsState()
     val pairStats by viewModel.pairStatistics.collectAsState()
     val candidatePairAnalysis by viewModel.candidatePairAnalysis.collectAsState()
+    val candidateOpponentAnalysis by viewModel.candidateOpponentAnalysis.collectAsState()
     val fairnessScore by viewModel.currentFairnessScore.collectAsState()
     val fairnessRating by viewModel.currentFairnessRating.collectAsState()
+    val opponentStats by viewModel.opponentStatistics.collectAsState()
 
     FrostedMeshBackground {
         LazyColumn(
@@ -109,7 +109,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.Group,
+                                    imageVector = Icons.Default.Person,
                                     contentDescription = "Teams",
                                     tint = IndigoAccent,
                                     modifier = Modifier.size(24.dp)
@@ -192,7 +192,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        imageVector = Icons.Default.Warning,
+                                        imageVector = Icons.Default.Person,
                                         contentDescription = "Error",
                                         tint = CrimsonHot
                                     )
@@ -527,6 +527,160 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                     }
                 }
             }
+            
+            // Opponent Analysis Developer Debug Display
+            if (currentShuffleNumber > 0 || opponentStats.uniquePairsCount > 0) {
+                item {
+                    GlassyCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("opponent_pair_tracking_card"),
+                        cornerRadius = 16
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = "Opponent Pair Tracking",
+                                        tint = FuchsiaAccent,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Opponent Pair Tracking",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = FuchsiaAccent,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 1.sp
+                                    )
+                                }
+                                Text(
+                                    text = "DEV TRACKER",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.LightGray,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color.White.copy(alpha = 0.1f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Unique Opponent Pairs
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${opponentStats.uniquePairsCount}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = FuchsiaAccent,
+                                        modifier = Modifier.testTag("unique_opponent_pairs")
+                                    )
+                                    Text(
+                                        text = "Unique Opponents",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                                HorizontalDivider(
+                                    modifier = Modifier
+                                        .height(28.dp)
+                                        .width(1.dp),
+                                    color = Color.White.copy(alpha = 0.1f)
+                                )
+                                // Total Occurrences
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${opponentStats.totalPairOccurrences}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = FuchsiaAccent,
+                                        modifier = Modifier.testTag("total_opponent_occurrences")
+                                    )
+                                    Text(
+                                        text = "Total Encounters",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Repeated Opponents
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${opponentStats.repeatedPairOccurrences}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (opponentStats.repeatedPairOccurrences > 0) FuchsiaAccent else Color.LightGray,
+                                        modifier = Modifier.testTag("repeated_opponent_occurrences")
+                                    )
+                                    Text(
+                                        text = "Repeated Opponents",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                                HorizontalDivider(
+                                    modifier = Modifier
+                                        .height(28.dp)
+                                        .width(1.dp),
+                                    color = Color.White.copy(alpha = 0.1f)
+                                )
+                                // Max Repeated Encounters
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${opponentStats.maxRepeatedPairCount}×",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (opponentStats.maxRepeatedPairCount > 1) FuchsiaAccent else Color.LightGray,
+                                        modifier = Modifier.testTag("max_repeated_opponent")
+                                    )
+                                    Text(
+                                        text = "Most Repeated",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.Gray,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // Teammate Pair Tracking Debug Display
             if (currentShuffleNumber > 0 || pairStats.uniquePairsCount > 0) {
@@ -545,7 +699,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        imageVector = Icons.Default.Group,
+                                        imageVector = Icons.Default.Person,
                                         contentDescription = "Teammate Pair Tracking",
                                         tint = GoldStar,
                                         modifier = Modifier.size(16.dp)

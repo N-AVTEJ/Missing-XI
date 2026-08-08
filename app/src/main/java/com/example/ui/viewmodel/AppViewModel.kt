@@ -300,6 +300,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val signature: String,
         val pairAnalysis: com.example.util.CandidatePairAnalysis,
         val penaltyAnalysis: com.example.util.CandidatePenaltyResult,
+        val opponentAnalysis: com.example.util.OpponentPairAnalysis,
         val updatedCycle: List<String>,
         val updatedHistory: List<String>,
         val generatedAt: Long = System.currentTimeMillis(),
@@ -342,6 +343,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val candidatePairAnalysis = MutableStateFlow<CandidatePairAnalysis?>(null)
     val currentFairnessScore = MutableStateFlow(0)
     val currentFairnessRating = MutableStateFlow("")
+    
+    val opponentPairCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val opponentStatistics: StateFlow<PairStatistics> = opponentPairCounts.map { counts ->
+        com.example.util.OpponentPairTracker.getOpponentStatistics(counts)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PairStatistics())
+
+    val candidateOpponentAnalysis = MutableStateFlow<com.example.util.OpponentPairAnalysis?>(null)
+    
 
     val generatedSignaturesSet = MutableStateFlow<Set<String>>(emptySet())
     val duplicatesPrevented = MutableStateFlow(0)
@@ -455,6 +464,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             var retryCount = 0
             
             val currentPairCounts = teammatePairCounts.value
+            val currentOpponentCounts = opponentPairCounts.value
 
             while (generatedCandidates.size < candidateTarget && retryCount < maxRetries) {
                 var tempJoker: String? = null
@@ -508,6 +518,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         acceptedTeamsPlayerIds,
                         currentPairCounts
                     )
+                    val opponentAnalysis = com.example.util.OpponentPairTracker.analyzeOpponentPairs(
+                        acceptedTeamsPlayerIds,
+                        currentOpponentCounts
+                    )
                     val penaltyAnalysis = pairAnalysis.penaltyResult 
                     val fScore = com.example.util.TeammatePairTracker.calculateFairnessScore(pairAnalysis)
                     val fRating = com.example.util.TeammatePairTracker.getFairnessRating(fScore)
@@ -520,6 +534,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             signature = sig,
                             pairAnalysis = pairAnalysis,
                             penaltyAnalysis = penaltyAnalysis,
+                            opponentAnalysis = opponentAnalysis,
                             updatedCycle = tempCycle,
                             updatedHistory = tempHistory,
                             fairnessScore = fScore,
@@ -603,6 +618,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         sessionHistory.value = listOf(session) + sessionHistory.value
 
         candidatePairAnalysis.value = chosen.pairAnalysis
+        candidateOpponentAnalysis.value = chosen.opponentAnalysis
         currentFairnessScore.value = chosen.fairnessScore
         currentFairnessRating.value = chosen.fairnessRating
 
@@ -610,6 +626,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val acceptedTeamsPlayerIds = chosen.teams.map { it.playerIds }
         teammatePairCounts.value = com.example.util.TeammatePairTracker.updateTeammatePairCounts(
             teammatePairCounts.value,
+            acceptedTeamsPlayerIds
+        )
+        
+        // Update Opponent History
+        opponentPairCounts.value = com.example.util.OpponentPairTracker.updateOpponentHistory(
+            opponentPairCounts.value,
             acceptedTeamsPlayerIds
         )
 
@@ -650,7 +672,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun clearSessionHistory() {
         sessionHistory.value = emptyList()
         teammatePairCounts.value = emptyMap()
+        opponentPairCounts.value = emptyMap()
         candidatePairAnalysis.value = null
+        candidateOpponentAnalysis.value = null
         generatedSignaturesSet.value = emptySet()
         duplicatesPrevented.value = 0
         currentShuffleNumber.value = 0
