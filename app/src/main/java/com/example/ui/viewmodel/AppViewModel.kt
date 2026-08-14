@@ -7,9 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.db.AppDatabase
 import com.example.data.firebase.FirebaseService
 import com.example.data.model.LineupEntity
+import com.example.data.model.PlayerEntity
 import com.example.data.model.TossEntity
 import com.example.data.repository.AppRepository
 import com.example.util.CandidatePairAnalysis
+import com.example.util.GeneratedTeam
 import com.example.util.PairStatistics
 import com.example.util.Player
 import com.example.util.TeammatePairTracker
@@ -301,6 +303,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val pairAnalysis: com.example.util.CandidatePairAnalysis,
         val penaltyAnalysis: com.example.util.CandidatePenaltyResult,
         val opponentAnalysis: com.example.util.OpponentPairAnalysis,
+        val strengthAnalysis: com.example.util.CandidateStrengthAnalysis = com.example.util.CandidateStrengthAnalysis(),
         val updatedCycle: List<String>,
         val updatedHistory: List<String>,
         val generatedAt: Long = System.currentTimeMillis(),
@@ -313,15 +316,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val candidateGenerationTarget = MutableStateFlow(0)
     val candidatesGeneratedList = MutableStateFlow<List<GeneratedCandidate>>(emptyList())
     val generationDiagnostics = MutableStateFlow<GenerationDiagnostics?>(null)
+    val currentStrengthAnalysis = MutableStateFlow<com.example.util.CandidateStrengthAnalysis?>(null)
+
+    val highestRatedPlayer: StateFlow<PlayerEntity?> = allActivePlayers.map { players ->
+        players.maxByOrNull { it.skillRating }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val averagePlayerSkill: StateFlow<Double> = allActivePlayers.map { players ->
+        if (players.isNotEmpty()) players.map { it.skillRating }.average() else 0.0
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val teamStrengthDistribution: StateFlow<Map<String, Int>> = currentStrengthAnalysis.map { analysis ->
+        if (analysis != null) {
+            val dist = mutableMapOf<String, Int>()
+            analysis.teamStrengths.forEachIndexed { idx, str ->
+                dist["Team " + (('A' + idx).toString())] = str
+            }
+            dist
+        } else emptyMap()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    fun updatePlayerSkill(player: PlayerEntity, rating: Int) {
+        val clamped = rating.coerceIn(1, 10)
+        viewModelScope.launch {
+            repository.updatePlayer(player.copy(skillRating = clamped))
+        }
+    }
 
     data class TeamConfigState(val playersPerTeam: Int = 0, val remainingPlayers: Int = 0, val error: String? = null)
-    
-    data class GeneratedTeam(
-        val teamNumber: Int,
-        val name: String,
-        val players: List<String>,
-        val playerIds: List<String> = emptyList()
-    )
 
     data class ShuffleSession(
         val shuffleNumber: Int,
@@ -438,8 +460,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun shuffleTeams() {
         if (isGeneratingCandidates.value) return
         val numTeams = configNumberOfTeams.value.toIntOrNull() ?: 0
+        val activePlayersMap = allActivePlayers.value.associateBy { it.displayName }
         val activePlayerObjects = buildPlayersList.value.mapIndexed { index, name ->
-            Player(id = "player_${index + 1}", name = name.trim())
+            val cleanName = name.trim()
+            val dbPlayer = activePlayersMap[cleanName]
+            Player(
+                id = dbPlayer?.id ?: "player_${index + 1}",
+                name = cleanName,
+                skillRating = dbPlayer?.skillRating ?: 5
+            )
         }.filter { it.name.isNotBlank() }
         val activePlayerNames = activePlayerObjects.map { it.name }
         if (numTeams < 2 || activePlayerObjects.size < numTeams) return
@@ -499,14 +528,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val candidateTeams = teamsList.mapIndexed { index, players ->
+                    val strAnalysis = com.example.util.TeamStrengthEngine.calculateTeamStrength(players)
                     GeneratedTeam(
                         teamNumber = index + 1,
                         name = "Team " + (('A' + index).toString()),
                         players = players.map { it.name },
-                        playerIds = players.map { it.id }
+                        playerIds = players.map { it.id },
+                        totalStrength = strAnalysis.totalStrength,
+                        averageStrength = strAnalysis.averageStrength,
+                        maxPlayerRating = strAnalysis.maxPlayerRating,
+                        minPlayerRating = strAnalysis.minPlayerRating
                     )
                 }
 
+                val strengthAnalysis = com.example.util.TeamStrengthEngine.evaluateCandidateStrength(candidateTeams)
                 val sig = generateArrangementSignature(candidateTeams, tempJoker)
 
                 if (existingSigs.contains(sig) || generatedCandidates.any { it.signature == sig }) {
@@ -535,6 +570,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             pairAnalysis = pairAnalysis,
                             penaltyAnalysis = penaltyAnalysis,
                             opponentAnalysis = opponentAnalysis,
+                            strengthAnalysis = strengthAnalysis,
                             updatedCycle = tempCycle,
                             updatedHistory = tempHistory,
                             fairnessScore = fScore,
@@ -547,10 +583,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
             val endTime = System.currentTimeMillis()
             
-            // Randomize tied candidates by shuffling before sorting
+            // Candidate Ranking Priority Order:
+            // 1. Lowest teammate penalty
+            // 2. Lowest opponent penalty
+            // 3. Smallest team strength difference
+            // 4. Highest new teammate pairs
+            // 5. Lowest highest pair penalty
+            // 6. Random tie-break
             generatedCandidates.shuffle()
             generatedCandidates.sortWith(Comparator { c1, c2 ->
                 var cmp = c1.penaltyAnalysis.totalPenalty.compareTo(c2.penaltyAnalysis.totalPenalty)
+                if (cmp != 0) return@Comparator cmp
+                cmp = c1.opponentAnalysis.historicalRepeatOccurrences.compareTo(c2.opponentAnalysis.historicalRepeatOccurrences)
+                if (cmp != 0) return@Comparator cmp
+                cmp = c1.strengthAnalysis.strengthDifference.compareTo(c2.strengthAnalysis.strengthDifference)
                 if (cmp != 0) return@Comparator cmp
                 cmp = c2.pairAnalysis.newPairs.compareTo(c1.pairAnalysis.newPairs)
                 if (cmp != 0) return@Comparator cmp
@@ -619,6 +665,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         candidatePairAnalysis.value = chosen.pairAnalysis
         candidateOpponentAnalysis.value = chosen.opponentAnalysis
+        currentStrengthAnalysis.value = chosen.strengthAnalysis
         currentFairnessScore.value = chosen.fairnessScore
         currentFairnessRating.value = chosen.fairnessRating
 

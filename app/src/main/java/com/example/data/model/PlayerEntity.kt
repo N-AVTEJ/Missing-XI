@@ -14,5 +14,6 @@ data class PlayerEntity(
     val totalMatches: Int = 0,
     val totalTimesJoker: Int = 0,
     val isFavorite: Boolean = false,
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    val skillRating: Int = 5
 )

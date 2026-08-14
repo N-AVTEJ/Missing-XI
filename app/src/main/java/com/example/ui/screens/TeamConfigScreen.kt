@@ -69,6 +69,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val fairnessScore by viewModel.currentFairnessScore.collectAsState()
     val fairnessRating by viewModel.currentFairnessRating.collectAsState()
     val opponentStats by viewModel.opponentStatistics.collectAsState()
+    val currentStrengthAnalysis by viewModel.currentStrengthAnalysis.collectAsState()
 
     FrostedMeshBackground {
         LazyColumn(
@@ -442,11 +443,41 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     Text("$duplicatesPrevented", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (duplicatesPrevented > 0) GoldStar else Color.LightGray)
                                     Text("Duplicates", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
                                 }
-                                if (jokerPlayer != null) {
+                                 if (jokerPlayer != null) {
                                     HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text("$jokerPlayer", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = FuchsiaAccent, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.widthIn(max=60.dp))
                                         Text("Current Joker", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+
+                            // Team Strength Balance Row
+                            currentStrengthAnalysis?.let { strAnalysis ->
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceEvenly,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("${strAnalysis.strengthDifference}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (strAnalysis.strengthDifference <= 1) NeonGreen else GoldStar)
+                                        Text("Strength Diff", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+                                    }
+                                    HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("${strAnalysis.strongestTeamName} (${strAnalysis.strongestTeamStrength})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NeonBlue, fontSize = 12.sp)
+                                        Text("Strongest Team", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+                                    }
+                                    HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("${strAnalysis.weakestTeamName} (${strAnalysis.weakestTeamStrength})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.LightGray, fontSize = 12.sp)
+                                        Text("Weakest Team", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+                                    }
+                                    HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(String.format(java.util.Locale.US, "%.2f", strAnalysis.averageTeamStrength), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NeonGreen)
+                                        Text("Avg Team Rating", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
                                     }
                                 }
                             }
@@ -965,6 +996,28 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                             fontSize = 13.sp
                                         )
                                     }
+                                }
+                            }
+
+                            if (team.totalStrength > 0) {
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Team Strength: ${team.totalStrength}",
+                                        color = NeonGreen,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Avg Rating: ${String.format(java.util.Locale.US, "%.2f", team.averageStrength)}",
+                                        color = NeonBlue,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
                             }
                         }
