@@ -318,6 +318,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val generationDiagnostics = MutableStateFlow<GenerationDiagnostics?>(null)
     val currentStrengthAnalysis = MutableStateFlow<com.example.util.CandidateStrengthAnalysis?>(null)
 
+    val playerSortOption = MutableStateFlow(com.example.util.PlayerSortOption.FAVORITES_FIRST)
+
+    fun setPlayerSortOption(option: com.example.util.PlayerSortOption) {
+        playerSortOption.value = option
+    }
+
+    val sortedActivePlayers: StateFlow<List<PlayerEntity>> = combine(
+        allActivePlayers,
+        playerSortOption
+    ) { players, sortOpt ->
+        com.example.util.PlayerChemistryEngine.sortPlayers(players, sortOpt)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val dashboardStats: StateFlow<com.example.util.DashboardStats> = combine(
+        allActivePlayers,
+        repository.sessionCount
+    ) { players, sessionCount ->
+        com.example.util.PlayerChemistryEngine.calculateDashboardStats(players, sessionCount)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.util.DashboardStats())
+
     val highestRatedPlayer: StateFlow<PlayerEntity?> = allActivePlayers.map { players ->
         players.maxByOrNull { it.skillRating }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -693,22 +713,59 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             repository.insertSession(dbSession)
             loadLatestSession() // Update latest session state
 
+            val currentTime = System.currentTimeMillis()
             activePlayerNames.forEach { playerName ->
                 val existingPlayer = repository.getPlayerByName(playerName)
+                val isJoker = playerName == chosen.joker
+
+                val favTeammate = com.example.util.PlayerChemistryEngine.getFavoriteTeammate(playerName, teammatePairCounts.value)
+                val favOpponent = com.example.util.PlayerChemistryEngine.getFavoriteOpponent(playerName, opponentPairCounts.value)
+                val totalTeammatesCount = com.example.util.PlayerChemistryEngine.getTotalTeammatesCount(playerName, teammatePairCounts.value)
+                val totalOpponentsCount = com.example.util.PlayerChemistryEngine.getTotalOpponentsCount(playerName, opponentPairCounts.value)
+
                 if (existingPlayer != null) {
-                    val isJoker = playerName == chosen.joker
-                    repository.updatePlayer(existingPlayer.copy(
-                        lastUsedAt = System.currentTimeMillis(),
-                        totalMatches = existingPlayer.totalMatches + 1,
-                        totalTimesJoker = if (isJoker) existingPlayer.totalTimesJoker + 1 else existingPlayer.totalTimesJoker
-                    ))
+                    val prevLastPlayed = if (existingPlayer.lastPlayedAt > 0) existingPlayer.lastPlayedAt else existingPlayer.lastUsedAt
+                    val gap = if (prevLastPlayed > 0) currentTime - prevLastPlayed else 0L
+                    val longestGap = if (gap > existingPlayer.longestGapSincePlayed) gap else existingPlayer.longestGapSincePlayed
+
+                    val updatedMatches = existingPlayer.matchesPlayed + 1
+                    val updatedTotalMatches = existingPlayer.totalMatches + 1
+                    val updatedJoker = if (isJoker) existingPlayer.matchesAsJoker + 1 else existingPlayer.matchesAsJoker
+                    val updatedTotalJoker = if (isJoker) existingPlayer.totalTimesJoker + 1 else existingPlayer.totalTimesJoker
+
+                    repository.updatePlayer(
+                        existingPlayer.copy(
+                            lastUsedAt = currentTime,
+                            lastPlayedAt = currentTime,
+                            totalMatches = updatedTotalMatches,
+                            matchesPlayed = updatedMatches,
+                            totalTimesJoker = updatedTotalJoker,
+                            matchesAsJoker = updatedJoker,
+                            currentPlayStreak = existingPlayer.currentPlayStreak + 1,
+                            longestGapSincePlayed = longestGap,
+                            totalTeammates = totalTeammatesCount,
+                            totalOpponents = totalOpponentsCount,
+                            favoriteTeammateId = favTeammate?.idOrName,
+                            favoriteOpponentId = favOpponent?.idOrName,
+                            updatedAt = currentTime
+                        )
+                    )
                 } else {
-                    val isJoker = playerName == chosen.joker
                     repository.insertPlayer(
                         com.example.data.model.PlayerEntity(
                             displayName = playerName,
                             totalMatches = 1,
-                            totalTimesJoker = if (isJoker) 1 else 0
+                            matchesPlayed = 1,
+                            totalTimesJoker = if (isJoker) 1 else 0,
+                            matchesAsJoker = if (isJoker) 1 else 0,
+                            currentPlayStreak = 1,
+                            lastUsedAt = currentTime,
+                            lastPlayedAt = currentTime,
+                            totalTeammates = totalTeammatesCount,
+                            totalOpponents = totalOpponentsCount,
+                            favoriteTeammateId = favTeammate?.idOrName,
+                            favoriteOpponentId = favOpponent?.idOrName,
+                            updatedAt = currentTime
                         )
                     )
                 }

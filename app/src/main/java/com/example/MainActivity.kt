@@ -109,6 +109,15 @@ fun MainNavigationContainer() {
         composable("playerPicker") {
           PlayerPickerScreen(
               viewModel = viewModel,
+              onNavigateBack = { navController.popBackStack() },
+              onNavigateToProfile = { playerId -> navController.navigate("playerProfile/$playerId") }
+          )
+        }
+        composable("playerProfile/{playerId}") { backStackEntry ->
+          val playerId = backStackEntry.arguments?.getString("playerId") ?: ""
+          PlayerProfileScreen(
+              viewModel = viewModel,
+              playerId = playerId,
               onNavigateBack = { navController.popBackStack() }
           )
         }

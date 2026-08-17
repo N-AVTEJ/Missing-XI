@@ -15,6 +15,9 @@ interface SessionDao {
     @Query("SELECT * FROM sessions ORDER BY timestamp DESC")
     fun getAllSessions(): Flow<List<SessionEntity>>
 
+    @Query("SELECT COUNT(*) FROM sessions")
+    fun getSessionCount(): Flow<Int>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSession(session: SessionEntity)
 }
