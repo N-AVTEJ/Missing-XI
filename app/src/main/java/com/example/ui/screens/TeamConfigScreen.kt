@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import kotlin.math.roundToInt
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -68,8 +69,15 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val candidateOpponentAnalysis by viewModel.candidateOpponentAnalysis.collectAsState()
     val fairnessScore by viewModel.currentFairnessScore.collectAsState()
     val fairnessRating by viewModel.currentFairnessRating.collectAsState()
+    val candidateFairnessEvaluation by viewModel.candidateFairnessEvaluation.collectAsState()
+    val candidatesEvaluatedCount by viewModel.candidatesEvaluatedCount.collectAsState()
+    val bestFairnessScore by viewModel.bestFairnessScore.collectAsState()
     val opponentStats by viewModel.opponentStatistics.collectAsState()
     val currentStrengthAnalysis by viewModel.currentStrengthAnalysis.collectAsState()
+    val qualityResult by viewModel.candidateQualityResult.collectAsState()
+    val additionalAttempts by viewModel.additionalGenerationAttempts.collectAsState()
+
+    var showWhyThisTeamExplanation by remember { mutableStateOf(false) }
 
     FrostedMeshBackground {
         LazyColumn(
@@ -316,7 +324,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                 }
             }
 
-            // Shuffle Summary
+            // Shuffle Summary & Fairness Ranking Card
             val analysis = candidatePairAnalysis
             if (analysis != null) {
                 item {
@@ -327,7 +335,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                         cornerRadius = 16
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            // Header: Fairness Score & Rating
+                            // Header: Fairness Score & Rating Badge
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -342,21 +350,23 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "FAIRNESS SCORE",
+                                        text = "COMBINED FAIRNESS SCORE",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = NeonBlue,
                                         fontWeight = FontWeight.Bold,
                                         letterSpacing = 1.sp
                                     )
                                 }
-                                val ratingColor = when (fairnessRating) {
+                                val isBestAvailable = qualityResult?.qualityLabel == com.example.util.FairnessQualityLabel.BEST_AVAILABLE
+                                val badgeText = if (isBestAvailable) "BEST AVAILABLE" else if (qualityResult?.passed == true) "✓ TARGET MET" else fairnessRating.uppercase()
+                                val ratingColor = if (isBestAvailable) GoldStar else when (fairnessRating) {
                                     "Excellent", "Very Good" -> NeonGreen
                                     "Good" -> NeonBlue
                                     "Average" -> GoldStar
                                     else -> FuchsiaAccent
                                 }
                                 Text(
-                                    text = fairnessRating.uppercase(),
+                                    text = badgeText,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = ratingColor,
@@ -369,61 +379,211 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                             }
                             
                             // Score Display
-                            Row(
+                            Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
                             ) {
-                                val ratingColor = when (fairnessRating) {
-                                    "Excellent", "Very Good" -> NeonGreen
-                                    "Good" -> NeonBlue
-                                    "Average" -> GoldStar
-                                    else -> FuchsiaAccent
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    val ratingColor = if (qualityResult?.qualityLabel == com.example.util.FairnessQualityLabel.BEST_AVAILABLE) GoldStar else when (fairnessRating) {
+                                        "Excellent", "Very Good" -> NeonGreen
+                                        "Good" -> NeonBlue
+                                        "Average" -> GoldStar
+                                        else -> FuchsiaAccent
+                                    }
+                                    Text(
+                                        text = "$fairnessScore",
+                                        style = MaterialTheme.typography.displayMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ratingColor,
+                                        modifier = Modifier.testTag("fairness_score")
+                                    )
+                                    Text(
+                                        text = "/100",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = Color.Gray,
+                                        modifier = Modifier.align(Alignment.Bottom).padding(bottom = 8.dp)
+                                    )
                                 }
-                                Text(
-                                    text = "$fairnessScore",
-                                    style = MaterialTheme.typography.displayMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ratingColor,
-                                    modifier = Modifier.testTag("fairness_score")
-                                )
-                                Text(
-                                    text = "/100",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = Color.Gray,
-                                    modifier = Modifier.align(Alignment.Bottom).padding(bottom = 8.dp)
-                                )
+                                if (qualityResult?.qualityLabel == com.example.util.FairnessQualityLabel.BEST_AVAILABLE) {
+                                    Text(
+                                        text = "Best available arrangement found. No generated arrangement met all fairness thresholds.",
+                                        fontSize = 11.sp,
+                                        color = GoldStar,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
-                            
-                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                            
-                            // Stats Grid: New Pairs, Repeated Pairs, Total Penalty
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("$fairnessScore", style = MaterialTheme.typography.titleMedium, color = Color.Transparent, fontSize = 0.sp) // hack for alignment? No just use fixed height or ignore
-                                    Text("${analysis.newPairs}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NeonGreen)
-                                    Text("New Pairs", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
-                                }
-                                HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("${analysis.repeatedPairs}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (analysis.repeatedPairs > 0) GoldStar else Color.LightGray)
-                                    Text("Repeated Pairs", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
-                                }
-                                HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    val penalty = analysis.penaltyResult.totalPenalty
-                                    Text("$penalty", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (penalty > 0) FuchsiaAccent else NeonGreen)
-                                    Text("Total Penalty", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+
+                            // Component Breakdown Grid (Teammate 40%, Opponent 20%, Team Balance 30%, Joker 10%)
+                            candidateFairnessEvaluation?.let { eval ->
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                                Text(
+                                    text = "FAIRNESS BREAKDOWN",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.Gray,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                                        Text("${eval.teammateScore.roundToInt()}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = NeonGreen)
+                                        Text("Teammates (40%)", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 9.sp)
+                                    }
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                                        Text("${eval.opponentScore.roundToInt()}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = NeonBlue)
+                                        Text("Opponents (20%)", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 9.sp)
+                                    }
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                                        Text("${eval.strengthScore.roundToInt()}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = GoldStar)
+                                        Text("Balance (30%)", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 9.sp)
+                                    }
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+                                        Text("${eval.jokerScore.roundToInt()}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = FuchsiaAccent)
+                                        Text("Joker (10%)", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 9.sp)
+                                    }
                                 }
                             }
                             
                             HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
-                            // Additional Info Grid: Shuffle Number, Unique Teams, Duplicates, Joker
+                            // Expandable "Why this team?" Explanation Section
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White.copy(alpha = 0.03f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(12.dp))
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { showWhyThisTeamExplanation = !showWhyThisTeamExplanation }
+                                        .testTag("why_this_team_toggle"),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Info,
+                                            contentDescription = "Why this team",
+                                            tint = NeonGreen,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Why this team?",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = if (showWhyThisTeamExplanation) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = "Toggle explanation",
+                                        tint = Color.Gray
+                                    )
+                                }
+
+                                AnimatedVisibility(
+                                    visible = showWhyThisTeamExplanation,
+                                    enter = fadeIn() + expandVertically(),
+                                    exit = fadeOut() + shrinkVertically()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(top = 10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        if (qualityResult?.qualityLabel == com.example.util.FairnessQualityLabel.BEST_AVAILABLE) {
+                                            Text(
+                                                text = "Best Available Arrangement",
+                                                fontWeight = FontWeight.Bold,
+                                                color = GoldStar,
+                                                fontSize = 11.sp
+                                            )
+                                            Text(
+                                                text = "Why it could not meet the target:",
+                                                fontSize = 11.sp,
+                                                color = Color.LightGray,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            qualityResult?.failedChecks?.forEach { failedMsg ->
+                                                Text(
+                                                    text = "• $failedMsg",
+                                                    fontSize = 11.sp,
+                                                    color = GoldStar
+                                                )
+                                            }
+                                            Text(
+                                                text = "Additional arrangements checked: $candidatesEvaluatedCount",
+                                                fontSize = 11.sp,
+                                                color = Color.Gray
+                                            )
+                                        } else {
+                                            Text(
+                                                text = "✓ Target fairness thresholds satisfied",
+                                                fontSize = 11.sp,
+                                                color = NeonGreen,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        Text(
+                                            text = "✓ Unique arrangement signature verified (No duplicate layout)",
+                                            fontSize = 11.sp,
+                                            color = Color.LightGray
+                                        )
+                                        Text(
+                                            text = "✓ ${analysis.newPairs} new teammate relationship pairs created",
+                                            fontSize = 11.sp,
+                                            color = NeonGreen
+                                        )
+                                        if (analysis.repeatedPairs > 0) {
+                                            Text(
+                                                text = "✓ ${analysis.repeatedPairs} repeated teammate pairs (minimized penalty)",
+                                                fontSize = 11.sp,
+                                                color = GoldStar
+                                            )
+                                        } else {
+                                            Text(
+                                                text = "✓ Zero repeated teammate pairs in current arrangement",
+                                                fontSize = 11.sp,
+                                                color = NeonGreen
+                                            )
+                                        }
+                                        currentStrengthAnalysis?.let { str ->
+                                            Text(
+                                                text = "✓ Team strength difference minimized to ${str.strengthDifference} (Avg rating: ${String.format(java.util.Locale.US, "%.1f", str.averageTeamStrength)})",
+                                                fontSize = 11.sp,
+                                                color = NeonBlue
+                                            )
+                                        }
+                                        jokerPlayer?.let { joker ->
+                                            Text(
+                                                text = "✓ Joker ($joker) assigned following fair cycle rotation rules",
+                                                fontSize = 11.sp,
+                                                color = FuchsiaAccent
+                                            )
+                                        }
+                                        Text(
+                                            text = "✓ Ranked #1 out of $candidatesEvaluatedCount generated candidates",
+                                            fontSize = 11.sp,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                            // Stats Grid: Candidates Evaluated, Best Score, Duplicates, Unique Teams
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -431,54 +591,27 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(if (currentShuffleNumber > 0) "#$currentShuffleNumber" else "-", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
-                                    Text("Shuffle No.", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+                                    Text("Shuffle No.", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 9.sp)
                                 }
                                 HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("$uniqueTeamsGenerated", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NeonBlue)
-                                    Text("Unique Teams", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+                                    Text("$candidatesEvaluatedCount", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NeonBlue)
+                                    Text("Evaluated", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 9.sp)
+                                }
+                                HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("$uniqueTeamsGenerated", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NeonGreen)
+                                    Text("Unique Teams", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 9.sp)
                                 }
                                 HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text("$duplicatesPrevented", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (duplicatesPrevented > 0) GoldStar else Color.LightGray)
-                                    Text("Duplicates", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
+                                    Text("Duplicates", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 9.sp)
                                 }
-                                 if (jokerPlayer != null) {
-                                    HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("$jokerPlayer", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = FuchsiaAccent, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.widthIn(max=60.dp))
-                                        Text("Current Joker", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
-                                    }
-                                }
-                            }
-
-                            // Team Strength Balance Row
-                            currentStrengthAnalysis?.let { strAnalysis ->
-                                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceEvenly,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("${strAnalysis.strengthDifference}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (strAnalysis.strengthDifference <= 1) NeonGreen else GoldStar)
-                                        Text("Strength Diff", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
-                                    }
-                                    HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("${strAnalysis.strongestTeamName} (${strAnalysis.strongestTeamStrength})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NeonBlue, fontSize = 12.sp)
-                                        Text("Strongest Team", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
-                                    }
-                                    HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("${strAnalysis.weakestTeamName} (${strAnalysis.weakestTeamStrength})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.LightGray, fontSize = 12.sp)
-                                        Text("Weakest Team", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
-                                    }
-                                    HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(String.format(java.util.Locale.US, "%.2f", strAnalysis.averageTeamStrength), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NeonGreen)
-                                        Text("Avg Team Rating", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 10.sp)
-                                    }
+                                HorizontalDivider(modifier = Modifier.height(28.dp).width(1.dp), color = Color.White.copy(alpha = 0.1f))
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${bestFairnessScore.roundToInt()}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = NeonGreen)
+                                    Text("Best Score", style = MaterialTheme.typography.labelSmall, color = Color.Gray, fontSize = 9.sp)
                                 }
                             }
                         }
@@ -525,7 +658,19 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                 ) {
                                     HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("Candidates Generated:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("Fairness Target Score:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("${diag.fairnessTarget}", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Quality Gate Status:", color = Color.Gray, fontSize = 12.sp)
+                                        Text(diag.qualityGateStatus, color = if (diag.qualityGateStatus == "BEST_AVAILABLE") GoldStar else NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Additional Generation Attempts:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("${diag.additionalAttempts}", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Total Candidates Evaluated:", color = Color.Gray, fontSize = 12.sp)
                                         Text("${diag.candidatesGenerated}", color = Color.White, fontSize = 12.sp)
                                     }
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -551,6 +696,14 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text("Winning Candidate Fairness Score:", color = Color.Gray, fontSize = 12.sp)
                                         Text("${diag.winningCandidateFairnessScore}", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    if (diag.failedCriteria.isNotEmpty()) {
+                                        Column(modifier = Modifier.fillMaxWidth()) {
+                                            Text("Failed Criteria:", color = GoldStar, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            diag.failedCriteria.forEach { crit ->
+                                                Text("• $crit", color = GoldStar, fontSize = 11.sp)
+                                            }
+                                        }
                                     }
                                 }
                             }

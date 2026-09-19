@@ -1,5 +1,6 @@
 package com.example.ui.viewmodel
 
+import kotlin.math.roundToInt
 import android.content.Context
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -292,7 +293,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val lowestPenaltyFound: Int = 0,
         val highestPenaltyFound: Int = 0,
         val winningCandidatePenalty: Int = 0,
-        val winningCandidateFairnessScore: Int = 0
+        val winningCandidateFairnessScore: Int = 0,
+        val fairnessTarget: Int = com.example.util.FairnessConfig.MINIMUM_OVERALL_FAIRNESS_SCORE.toInt(),
+        val qualityGateStatus: String = "",
+        val additionalAttempts: Int = 0,
+        val failedCriteria: List<String> = emptyList()
     )
 
     data class GeneratedCandidate(
@@ -308,7 +313,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val updatedHistory: List<String>,
         val generatedAt: Long = System.currentTimeMillis(),
         val fairnessScore: Int = 0,
-        val fairnessRating: String = ""
+        val fairnessRating: String = "",
+        val fairnessEvaluation: com.example.util.FairnessEvaluation = com.example.util.FairnessEvaluation(),
+        val qualityResult: com.example.util.FairnessQualityResult = com.example.util.FairnessQualityResult()
     )
 
     val isGeneratingCandidates = MutableStateFlow(false)
@@ -385,6 +392,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val candidatePairAnalysis = MutableStateFlow<CandidatePairAnalysis?>(null)
     val currentFairnessScore = MutableStateFlow(0)
     val currentFairnessRating = MutableStateFlow("")
+    val candidateFairnessEvaluation = MutableStateFlow<com.example.util.FairnessEvaluation?>(null)
+    val candidateQualityResult = MutableStateFlow<com.example.util.FairnessQualityResult?>(null)
+    val additionalGenerationAttempts = MutableStateFlow(0)
+    val candidatesEvaluatedCount = MutableStateFlow(0)
+    val bestFairnessScore = MutableStateFlow(0.0)
     
     val opponentPairCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
     val opponentStatistics: StateFlow<PairStatistics> = opponentPairCounts.map { counts ->
@@ -515,140 +527,201 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val currentPairCounts = teammatePairCounts.value
             val currentOpponentCounts = opponentPairCounts.value
 
-            while (generatedCandidates.size < candidateTarget && retryCount < maxRetries) {
-                var tempJoker: String? = null
-                var tempCycle = currentCycleJokers.value.toMutableList()
-                var tempHistory = previousJokersHistory.value.toMutableList()
-                val tempPool: List<Player>
+            val generatedCandidates = mutableListOf<GeneratedCandidate>()
+            var totalCandidatesRejected = 0
+            var totalRetryCount = 0
+            var attemptsMade = 0
+            var qualityGatePassed = false
+            var winningCandidate: GeneratedCandidate? = null
 
-                if (activePlayerObjects.size % numTeams != 0) {
-                    val cycleSet = tempCycle.toSet()
-                    var eligible = activePlayerObjects.filter { it.name !in cycleSet && it.id !in cycleSet }
+            android.util.Log.d("FAIRNESS", "[FAIRNESS] Initial candidates target: $candidateTarget")
 
-                    if (eligible.isEmpty()) {
-                        tempCycle.clear()
-                        eligible = activePlayerObjects
+            for (attempt in 0..com.example.util.FairnessConfig.MAX_ADDITIONAL_GENERATION_ATTEMPTS) {
+                attemptsMade = attempt
+                if (attempt > 0) {
+                    android.util.Log.d("FAIRNESS", "[FAIRNESS] Quality gate FAILED. Generating additional candidates (Attempt $attempt/${com.example.util.FairnessConfig.MAX_ADDITIONAL_GENERATION_ATTEMPTS})")
+                }
+
+                var batchRetryCount = 0
+                val batchCandidatesCount = generatedCandidates.size
+
+                while (generatedCandidates.size < batchCandidatesCount + candidateTarget && batchRetryCount < maxRetries) {
+                    var tempJoker: String? = null
+                    var tempCycle = currentCycleJokers.value.toMutableList()
+                    var tempHistory = previousJokersHistory.value.toMutableList()
+                    val tempPool: List<Player>
+
+                    if (activePlayerObjects.size % numTeams != 0) {
+                        val cycleSet = tempCycle.toSet()
+                        var eligible = activePlayerObjects.filter { it.name !in cycleSet && it.id !in cycleSet }
+
+                        if (eligible.isEmpty()) {
+                            tempCycle.clear()
+                            eligible = activePlayerObjects
+                        }
+
+                        val pickedJoker = eligible.shuffled().first()
+                        tempJoker = pickedJoker.name
+
+                        tempCycle.add(pickedJoker.name)
+                        tempHistory.add(pickedJoker.name)
+
+                        tempPool = activePlayerObjects.filter { it.id != pickedJoker.id }.shuffled()
+                    } else {
+                        tempJoker = null
+                        tempPool = activePlayerObjects.shuffled()
                     }
 
-                    val pickedJoker = eligible.shuffled().first()
-                    tempJoker = pickedJoker.name
+                    val teamsList = List(numTeams) { mutableListOf<Player>() }
+                    tempPool.forEachIndexed { index, player ->
+                        teamsList[index % numTeams].add(player)
+                    }
 
-                    tempCycle.add(pickedJoker.name)
-                    tempHistory.add(pickedJoker.name)
+                    val candidateTeams = teamsList.mapIndexed { index, players ->
+                        val strAnalysis = com.example.util.TeamStrengthEngine.calculateTeamStrength(players)
+                        GeneratedTeam(
+                            teamNumber = index + 1,
+                            name = "Team " + (('A' + index).toString()),
+                            players = players.map { it.name },
+                            playerIds = players.map { it.id },
+                            totalStrength = strAnalysis.totalStrength,
+                            averageStrength = strAnalysis.averageStrength,
+                            maxPlayerRating = strAnalysis.maxPlayerRating,
+                            minPlayerRating = strAnalysis.minPlayerRating
+                        )
+                    }
 
-                    tempPool = activePlayerObjects.filter { it.id != pickedJoker.id }.shuffled()
-                } else {
-                    tempJoker = null
-                    tempPool = activePlayerObjects.shuffled()
-                }
+                    val strengthAnalysis = com.example.util.TeamStrengthEngine.evaluateCandidateStrength(candidateTeams)
+                    val sig = generateArrangementSignature(candidateTeams, tempJoker)
 
-                val teamsList = List(numTeams) { mutableListOf<Player>() }
-                tempPool.forEachIndexed { index, player ->
-                    teamsList[index % numTeams].add(player)
-                }
+                    if (existingSigs.contains(sig) || generatedCandidates.any { it.signature == sig }) {
+                        totalCandidatesRejected++
+                        batchRetryCount++
+                        totalRetryCount++
+                    } else {
+                        val acceptedTeamsPlayerIds = candidateTeams.map { it.playerIds }
+                        val pairAnalysis = com.example.util.TeammatePairTracker.analyzeCandidatePairs(
+                            acceptedTeamsPlayerIds,
+                            currentPairCounts
+                        )
+                        val opponentAnalysis = com.example.util.OpponentPairTracker.analyzeOpponentPairs(
+                            acceptedTeamsPlayerIds,
+                            currentOpponentCounts
+                        )
+                        val penaltyAnalysis = pairAnalysis.penaltyResult 
 
-                val candidateTeams = teamsList.mapIndexed { index, players ->
-                    val strAnalysis = com.example.util.TeamStrengthEngine.calculateTeamStrength(players)
-                    GeneratedTeam(
-                        teamNumber = index + 1,
-                        name = "Team " + (('A' + index).toString()),
-                        players = players.map { it.name },
-                        playerIds = players.map { it.id },
-                        totalStrength = strAnalysis.totalStrength,
-                        averageStrength = strAnalysis.averageStrength,
-                        maxPlayerRating = strAnalysis.maxPlayerRating,
-                        minPlayerRating = strAnalysis.minPlayerRating
-                    )
-                }
-
-                val strengthAnalysis = com.example.util.TeamStrengthEngine.evaluateCandidateStrength(candidateTeams)
-                val sig = generateArrangementSignature(candidateTeams, tempJoker)
-
-                if (existingSigs.contains(sig) || generatedCandidates.any { it.signature == sig }) {
-                    candidatesRejected++
-                    retryCount++
-                } else {
-                    val acceptedTeamsPlayerIds = candidateTeams.map { it.playerIds }
-                    val pairAnalysis = com.example.util.TeammatePairTracker.analyzeCandidatePairs(
-                        acceptedTeamsPlayerIds,
-                        currentPairCounts
-                    )
-                    val opponentAnalysis = com.example.util.OpponentPairTracker.analyzeOpponentPairs(
-                        acceptedTeamsPlayerIds,
-                        currentOpponentCounts
-                    )
-                    val penaltyAnalysis = pairAnalysis.penaltyResult 
-                    val fScore = com.example.util.TeammatePairTracker.calculateFairnessScore(pairAnalysis)
-                    val fRating = com.example.util.TeammatePairTracker.getFairnessRating(fScore)
-                    
-                    generatedCandidates.add(
-                        GeneratedCandidate(
-                            candidateId = java.util.UUID.randomUUID().toString(),
-                            teams = candidateTeams,
-                            joker = tempJoker,
-                            signature = sig,
+                        val evaluation = com.example.util.FairnessRankingEngine.evaluateCandidateFairness(
                             pairAnalysis = pairAnalysis,
-                            penaltyAnalysis = penaltyAnalysis,
                             opponentAnalysis = opponentAnalysis,
                             strengthAnalysis = strengthAnalysis,
-                            updatedCycle = tempCycle,
-                            updatedHistory = tempHistory,
-                            fairnessScore = fScore,
-                            fairnessRating = fRating
+                            joker = tempJoker,
+                            activePlayers = activePlayerNames,
+                            cycleJokers = tempCycle
                         )
-                    )
-                    candidateGenerationProgress.value = generatedCandidates.size
+                        val fScore = evaluation.overallScore.roundToInt()
+                        val fRating = com.example.util.FairnessRankingEngine.getFairnessRating(evaluation.overallScore)
+                        val qResult = com.example.util.FairnessQualityResult.evaluate(evaluation)
+
+                        generatedCandidates.add(
+                            GeneratedCandidate(
+                                candidateId = java.util.UUID.randomUUID().toString(),
+                                teams = candidateTeams,
+                                joker = tempJoker,
+                                signature = sig,
+                                pairAnalysis = pairAnalysis,
+                                penaltyAnalysis = penaltyAnalysis,
+                                opponentAnalysis = opponentAnalysis,
+                                strengthAnalysis = strengthAnalysis,
+                                updatedCycle = tempCycle,
+                                updatedHistory = tempHistory,
+                                fairnessScore = fScore,
+                                fairnessRating = fRating,
+                                fairnessEvaluation = evaluation,
+                                qualityResult = qResult
+                            )
+                        )
+                        candidateGenerationProgress.value = generatedCandidates.size
+                    }
+                }
+
+                // Re-rank candidates
+                generatedCandidates.shuffle()
+                generatedCandidates.sortWith { c1, c2 ->
+                    com.example.util.FairnessRankingEngine.compareCandidates(c1.fairnessEvaluation, c2.fairnessEvaluation)
+                }
+
+                val topCandidate = generatedCandidates.firstOrNull()
+                if (topCandidate != null) {
+                    val qResult = com.example.util.FairnessQualityResult.evaluate(topCandidate.fairnessEvaluation)
+                    android.util.Log.d("FAIRNESS", "[FAIRNESS] Attempt $attempt Best score: ${topCandidate.fairnessScore}, Passed: ${qResult.passed}")
+
+                    if (qResult.passed) {
+                        qualityGatePassed = true
+                        winningCandidate = topCandidate.copy(qualityResult = qResult)
+                        android.util.Log.d("FAIRNESS", "[FAIRNESS] Quality gate: PASSED")
+                        break
+                    } else {
+                        android.util.Log.d("FAIRNESS", "[FAIRNESS] Quality gate: FAILED (${qResult.failedChecks.joinToString("; ")})")
+                    }
                 }
             }
 
             val endTime = System.currentTimeMillis()
-            
-            // Candidate Ranking Priority Order:
-            // 1. Lowest teammate penalty
-            // 2. Lowest opponent penalty
-            // 3. Smallest team strength difference
-            // 4. Highest new teammate pairs
-            // 5. Lowest highest pair penalty
-            // 6. Random tie-break
-            generatedCandidates.shuffle()
-            generatedCandidates.sortWith(Comparator { c1, c2 ->
-                var cmp = c1.penaltyAnalysis.totalPenalty.compareTo(c2.penaltyAnalysis.totalPenalty)
-                if (cmp != 0) return@Comparator cmp
-                cmp = c1.opponentAnalysis.historicalRepeatOccurrences.compareTo(c2.opponentAnalysis.historicalRepeatOccurrences)
-                if (cmp != 0) return@Comparator cmp
-                cmp = c1.strengthAnalysis.strengthDifference.compareTo(c2.strengthAnalysis.strengthDifference)
-                if (cmp != 0) return@Comparator cmp
-                cmp = c2.pairAnalysis.newPairs.compareTo(c1.pairAnalysis.newPairs)
-                if (cmp != 0) return@Comparator cmp
-                cmp = c1.penaltyAnalysis.highestPairPenalty.compareTo(c2.penaltyAnalysis.highestPairPenalty)
-                cmp
-            })
 
-            val avgPenalty = if (generatedCandidates.isNotEmpty()) generatedCandidates.map { it.penaltyAnalysis.totalPenalty }.average() else 0.0
-            val lowestPenalty = generatedCandidates.minOfOrNull { it.penaltyAnalysis.totalPenalty } ?: 0
-            val highestPenalty = generatedCandidates.maxOfOrNull { it.penaltyAnalysis.totalPenalty } ?: 0
-            val chosen = generatedCandidates.firstOrNull()
+            val rankedCandidates = generatedCandidates.mapIndexed { index, candidate ->
+                candidate.copy(
+                    fairnessEvaluation = candidate.fairnessEvaluation.copy(rankingPosition = index + 1)
+                )
+            }
+
+            val finalChosen = if (qualityGatePassed && winningCandidate != null) {
+                winningCandidate
+            } else {
+                val top = rankedCandidates.firstOrNull()
+                if (top != null) {
+                    val evalResult = com.example.util.FairnessQualityResult.evaluate(top.fairnessEvaluation)
+                    top.copy(
+                        qualityResult = evalResult.copy(qualityLabel = com.example.util.FairnessQualityLabel.BEST_AVAILABLE)
+                    )
+                } else null
+            }
+
+            if (finalChosen != null) {
+                android.util.Log.d("FAIRNESS", "[FAIRNESS] Final candidate accepted. Quality: ${finalChosen.qualityResult.qualityLabel.name}, Score: ${finalChosen.fairnessScore}")
+            }
+
+            val avgPenalty = if (rankedCandidates.isNotEmpty()) rankedCandidates.map { it.penaltyAnalysis.totalPenalty.toDouble() }.average() else 0.0
+            val lowestPenalty = rankedCandidates.minOfOrNull { it.penaltyAnalysis.totalPenalty } ?: 0
+            val highestPenalty = rankedCandidates.maxOfOrNull { it.penaltyAnalysis.totalPenalty } ?: 0
+
+            candidatesEvaluatedCount.value = rankedCandidates.size
+            bestFairnessScore.value = finalChosen?.fairnessEvaluation?.overallScore ?: 0.0
+            additionalGenerationAttempts.value = attemptsMade
             
             generationDiagnostics.value = GenerationDiagnostics(
-                candidatesGenerated = generatedCandidates.size,
-                candidatesRejected = candidatesRejected,
-                retryCount = retryCount,
+                candidatesGenerated = rankedCandidates.size,
+                candidatesRejected = totalCandidatesRejected,
+                retryCount = totalRetryCount,
                 generationTimeMs = endTime - startTime,
                 averageCandidatePenalty = avgPenalty,
                 bestCandidateRank = 1,
                 lowestPenaltyFound = lowestPenalty,
                 highestPenaltyFound = highestPenalty,
-                winningCandidatePenalty = chosen?.penaltyAnalysis?.totalPenalty ?: 0,
-                winningCandidateFairnessScore = chosen?.fairnessScore ?: 0
+                winningCandidatePenalty = finalChosen?.penaltyAnalysis?.totalPenalty ?: 0,
+                winningCandidateFairnessScore = finalChosen?.fairnessScore ?: 0,
+                fairnessTarget = com.example.util.FairnessConfig.MINIMUM_OVERALL_FAIRNESS_SCORE.toInt(),
+                qualityGateStatus = finalChosen?.qualityResult?.qualityLabel?.name ?: "UNKNOWN",
+                additionalAttempts = attemptsMade,
+                failedCriteria = finalChosen?.qualityResult?.failedChecks ?: emptyList()
             )
 
-            candidatesGeneratedList.value = generatedCandidates
+            candidatesGeneratedList.value = rankedCandidates
 
             // Back to main thread for applying the chosen candidate
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                if (chosen != null) {
-                    applyCandidateToState(chosen, activePlayerNames, numTeams, existingSigs)
-                    duplicatesPrevented.value += candidatesRejected 
+                if (finalChosen != null) {
+                    applyCandidateToState(finalChosen, activePlayerNames, numTeams, existingSigs)
+                    duplicatesPrevented.value += totalCandidatesRejected 
                 }
                 isGeneratingCandidates.value = false
             }
@@ -686,6 +759,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         candidatePairAnalysis.value = chosen.pairAnalysis
         candidateOpponentAnalysis.value = chosen.opponentAnalysis
         currentStrengthAnalysis.value = chosen.strengthAnalysis
+        candidateFairnessEvaluation.value = chosen.fairnessEvaluation
+        candidateQualityResult.value = chosen.qualityResult
         currentFairnessScore.value = chosen.fairnessScore
         currentFairnessRating.value = chosen.fairnessRating
 
@@ -708,7 +783,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val dbSession = com.example.data.model.SessionEntity(
                 playerIdsJson = jsonArray.toString(),
                 teamCount = numTeams,
-                timestamp = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis(),
+                overallFairnessScore = chosen.fairnessEvaluation.overallScore,
+                fairnessRating = chosen.fairnessRating,
+                teammateVarietyScore = chosen.fairnessEvaluation.teammateScore,
+                opponentVarietyScore = chosen.fairnessEvaluation.opponentScore,
+                teamStrengthScore = chosen.fairnessEvaluation.strengthScore,
+                jokerFairnessScore = chosen.fairnessEvaluation.jokerScore
             )
             repository.insertSession(dbSession)
             loadLatestSession() // Update latest session state
