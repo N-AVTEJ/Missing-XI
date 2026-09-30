@@ -12,6 +12,9 @@ import com.example.data.model.PlayerEntity
 import com.example.data.model.TossEntity
 import com.example.data.repository.AppRepository
 import com.example.util.CandidatePairAnalysis
+import com.example.util.FairnessConfig
+import com.example.util.FairnessMode
+import com.example.util.FairnessSettings
 import com.example.util.GeneratedTeam
 import com.example.util.PairStatistics
 import com.example.util.Player
@@ -297,7 +300,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val fairnessTarget: Int = com.example.util.FairnessConfig.MINIMUM_OVERALL_FAIRNESS_SCORE.toInt(),
         val qualityGateStatus: String = "",
         val additionalAttempts: Int = 0,
-        val failedCriteria: List<String> = emptyList()
+        val failedCriteria: List<String> = emptyList(),
+        val fairnessMode: String = FairnessMode.BALANCED.name,
+        val activeSettings: FairnessSettings = FairnessConfig.DEFAULT_FAIRNESS_SETTINGS
     )
 
     data class GeneratedCandidate(
@@ -476,6 +481,148 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         jokerPrefs.edit().clear().apply()
     }
 
+    // Fairness Settings Persistence & State
+    private val fairnessPrefs = application.getSharedPreferences("fairness_settings_prefs", Context.MODE_PRIVATE)
+
+    private fun loadFairnessSettings(): FairnessSettings {
+        val modeStr = fairnessPrefs.getString("fairness_mode", FairnessMode.BALANCED.name) ?: FairnessMode.BALANCED.name
+        val mode = try {
+            FairnessMode.valueOf(modeStr)
+        } catch (e: Exception) {
+            FairnessMode.BALANCED
+        }
+
+        val minScore = fairnessPrefs.getFloat(
+            "min_fairness_score",
+            FairnessConfig.DEFAULT_FAIRNESS_SETTINGS.minimumOverallFairnessScore.toFloat()
+        ).toDouble()
+        val maxDiff = fairnessPrefs.getInt(
+            "max_strength_diff",
+            FairnessConfig.DEFAULT_FAIRNESS_SETTINGS.maximumTeamStrengthDifference
+        )
+        val maxTmPenalty = fairnessPrefs.getInt(
+            "max_teammate_penalty",
+            FairnessConfig.DEFAULT_FAIRNESS_SETTINGS.maximumTeammatePenalty
+        )
+        val maxOppPenalty = fairnessPrefs.getInt(
+            "max_opponent_penalty",
+            FairnessConfig.DEFAULT_FAIRNESS_SETTINGS.maximumOpponentPenalty
+        )
+        val maxAttempts = fairnessPrefs.getInt(
+            "max_additional_attempts",
+            FairnessConfig.DEFAULT_FAIRNESS_SETTINGS.maxAdditionalGenerationAttempts
+        )
+
+        return FairnessSettings(
+            minimumOverallFairnessScore = minScore,
+            maximumTeamStrengthDifference = maxDiff,
+            maximumTeammatePenalty = maxTmPenalty,
+            maximumOpponentPenalty = maxOppPenalty,
+            maxAdditionalGenerationAttempts = maxAttempts,
+            fairnessMode = mode
+        )
+    }
+
+    private fun saveFairnessSettings(settings: FairnessSettings) {
+        fairnessPrefs.edit()
+            .putString("fairness_mode", settings.fairnessMode.name)
+            .putFloat("min_fairness_score", settings.minimumOverallFairnessScore.toFloat())
+            .putInt("max_strength_diff", settings.maximumTeamStrengthDifference)
+            .putInt("max_teammate_penalty", settings.maximumTeammatePenalty)
+            .putInt("max_opponent_penalty", settings.maximumOpponentPenalty)
+            .putInt("max_additional_attempts", settings.maxAdditionalGenerationAttempts)
+            .apply()
+    }
+
+    val fairnessSettings = MutableStateFlow(loadFairnessSettings())
+
+    fun selectFairnessMode(mode: FairnessMode) {
+        val newSettings = FairnessConfig.getPreset(mode)
+        fairnessSettings.value = newSettings
+        saveFairnessSettings(newSettings)
+    }
+
+    fun updateMinimumFairnessScore(score: Double) {
+        val clamped = score.coerceIn(0.0, 100.0)
+        val cur = fairnessSettings.value
+        val detected = FairnessConfig.detectMode(
+            minScore = clamped,
+            maxStrengthDiff = cur.maximumTeamStrengthDifference,
+            maxTeammatePenalty = cur.maximumTeammatePenalty,
+            maxOpponentPenalty = cur.maximumOpponentPenalty,
+            maxAttempts = cur.maxAdditionalGenerationAttempts
+        )
+        val updated = cur.copy(minimumOverallFairnessScore = clamped, fairnessMode = detected)
+        fairnessSettings.value = updated
+        saveFairnessSettings(updated)
+    }
+
+    fun updateMaximumTeamStrengthDifference(diff: Int) {
+        val validDiff = diff.coerceAtLeast(0)
+        val cur = fairnessSettings.value
+        val detected = FairnessConfig.detectMode(
+            minScore = cur.minimumOverallFairnessScore,
+            maxStrengthDiff = validDiff,
+            maxTeammatePenalty = cur.maximumTeammatePenalty,
+            maxOpponentPenalty = cur.maximumOpponentPenalty,
+            maxAttempts = cur.maxAdditionalGenerationAttempts
+        )
+        val updated = cur.copy(maximumTeamStrengthDifference = validDiff, fairnessMode = detected)
+        fairnessSettings.value = updated
+        saveFairnessSettings(updated)
+    }
+
+    fun updateMaximumTeammatePenalty(penalty: Int) {
+        val validPenalty = penalty.coerceAtLeast(0)
+        val cur = fairnessSettings.value
+        val detected = FairnessConfig.detectMode(
+            minScore = cur.minimumOverallFairnessScore,
+            maxStrengthDiff = cur.maximumTeamStrengthDifference,
+            maxTeammatePenalty = validPenalty,
+            maxOpponentPenalty = cur.maximumOpponentPenalty,
+            maxAttempts = cur.maxAdditionalGenerationAttempts
+        )
+        val updated = cur.copy(maximumTeammatePenalty = validPenalty, fairnessMode = detected)
+        fairnessSettings.value = updated
+        saveFairnessSettings(updated)
+    }
+
+    fun updateMaximumOpponentPenalty(penalty: Int) {
+        val validPenalty = penalty.coerceAtLeast(0)
+        val cur = fairnessSettings.value
+        val detected = FairnessConfig.detectMode(
+            minScore = cur.minimumOverallFairnessScore,
+            maxStrengthDiff = cur.maximumTeamStrengthDifference,
+            maxTeammatePenalty = cur.maximumTeammatePenalty,
+            maxOpponentPenalty = validPenalty,
+            maxAttempts = cur.maxAdditionalGenerationAttempts
+        )
+        val updated = cur.copy(maximumOpponentPenalty = validPenalty, fairnessMode = detected)
+        fairnessSettings.value = updated
+        saveFairnessSettings(updated)
+    }
+
+    fun updateMaxAdditionalGenerationAttempts(attempts: Int) {
+        val validAttempts = attempts.coerceIn(0, 20)
+        val cur = fairnessSettings.value
+        val detected = FairnessConfig.detectMode(
+            minScore = cur.minimumOverallFairnessScore,
+            maxStrengthDiff = cur.maximumTeamStrengthDifference,
+            maxTeammatePenalty = cur.maximumTeammatePenalty,
+            maxOpponentPenalty = cur.maximumOpponentPenalty,
+            maxAttempts = validAttempts
+        )
+        val updated = cur.copy(maxAdditionalGenerationAttempts = validAttempts, fairnessMode = detected)
+        fairnessSettings.value = updated
+        saveFairnessSettings(updated)
+    }
+
+    fun resetFairnessSettingsToDefault() {
+        val defaults = FairnessConfig.DEFAULT_FAIRNESS_SETTINGS
+        fairnessSettings.value = defaults
+        saveFairnessSettings(defaults)
+    }
+
     val teamConfigState = combine(configNumberOfTeams, buildPlayersList) { numTeamsStr, players ->
         val numTeams = numTeamsStr.toIntOrNull() ?: 0
         val totalPlayers = players.size
@@ -534,12 +681,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             var qualityGatePassed = false
             var winningCandidate: GeneratedCandidate? = null
 
-            android.util.Log.d("FAIRNESS", "[FAIRNESS] Initial candidates target: $candidateTarget")
+            val currentSettings = fairnessSettings.value
+            android.util.Log.d("FAIRNESS", "[FAIRNESS] Initial candidates target: $candidateTarget, Mode: ${currentSettings.fairnessMode.name}, Max Retries: ${currentSettings.maxAdditionalGenerationAttempts}")
 
-            for (attempt in 0..com.example.util.FairnessConfig.MAX_ADDITIONAL_GENERATION_ATTEMPTS) {
+            for (attempt in 0..currentSettings.maxAdditionalGenerationAttempts) {
                 attemptsMade = attempt
                 if (attempt > 0) {
-                    android.util.Log.d("FAIRNESS", "[FAIRNESS] Quality gate FAILED. Generating additional candidates (Attempt $attempt/${com.example.util.FairnessConfig.MAX_ADDITIONAL_GENERATION_ATTEMPTS})")
+                    android.util.Log.d("FAIRNESS", "[FAIRNESS] Quality gate FAILED. Generating additional candidates (Attempt $attempt/${currentSettings.maxAdditionalGenerationAttempts})")
                 }
 
                 var batchRetryCount = 0
@@ -620,7 +768,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         val fScore = evaluation.overallScore.roundToInt()
                         val fRating = com.example.util.FairnessRankingEngine.getFairnessRating(evaluation.overallScore)
-                        val qResult = com.example.util.FairnessQualityResult.evaluate(evaluation)
+                        val qResult = com.example.util.FairnessQualityResult.evaluate(evaluation, currentSettings)
 
                         generatedCandidates.add(
                             GeneratedCandidate(
@@ -652,7 +800,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
                 val topCandidate = generatedCandidates.firstOrNull()
                 if (topCandidate != null) {
-                    val qResult = com.example.util.FairnessQualityResult.evaluate(topCandidate.fairnessEvaluation)
+                    val qResult = com.example.util.FairnessQualityResult.evaluate(topCandidate.fairnessEvaluation, currentSettings)
                     android.util.Log.d("FAIRNESS", "[FAIRNESS] Attempt $attempt Best score: ${topCandidate.fairnessScore}, Passed: ${qResult.passed}")
 
                     if (qResult.passed) {
@@ -679,7 +827,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 val top = rankedCandidates.firstOrNull()
                 if (top != null) {
-                    val evalResult = com.example.util.FairnessQualityResult.evaluate(top.fairnessEvaluation)
+                    val evalResult = com.example.util.FairnessQualityResult.evaluate(top.fairnessEvaluation, currentSettings)
                     top.copy(
                         qualityResult = evalResult.copy(qualityLabel = com.example.util.FairnessQualityLabel.BEST_AVAILABLE)
                     )
@@ -709,10 +857,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 highestPenaltyFound = highestPenalty,
                 winningCandidatePenalty = finalChosen?.penaltyAnalysis?.totalPenalty ?: 0,
                 winningCandidateFairnessScore = finalChosen?.fairnessScore ?: 0,
-                fairnessTarget = com.example.util.FairnessConfig.MINIMUM_OVERALL_FAIRNESS_SCORE.toInt(),
+                fairnessTarget = currentSettings.minimumOverallFairnessScore.toInt(),
                 qualityGateStatus = finalChosen?.qualityResult?.qualityLabel?.name ?: "UNKNOWN",
                 additionalAttempts = attemptsMade,
-                failedCriteria = finalChosen?.qualityResult?.failedChecks ?: emptyList()
+                failedCriteria = finalChosen?.qualityResult?.failedChecks ?: emptyList(),
+                fairnessMode = currentSettings.fairnessMode.name,
+                activeSettings = currentSettings
             )
 
             candidatesGeneratedList.value = rankedCandidates

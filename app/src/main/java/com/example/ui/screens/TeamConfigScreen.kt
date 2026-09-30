@@ -76,6 +76,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val currentStrengthAnalysis by viewModel.currentStrengthAnalysis.collectAsState()
     val qualityResult by viewModel.candidateQualityResult.collectAsState()
     val additionalAttempts by viewModel.additionalGenerationAttempts.collectAsState()
+    val fairnessSettings by viewModel.fairnessSettings.collectAsState()
 
     var showWhyThisTeamExplanation by remember { mutableStateOf(false) }
 
@@ -357,25 +358,45 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                         letterSpacing = 1.sp
                                     )
                                 }
-                                val isBestAvailable = qualityResult?.qualityLabel == com.example.util.FairnessQualityLabel.BEST_AVAILABLE
-                                val badgeText = if (isBestAvailable) "BEST AVAILABLE" else if (qualityResult?.passed == true) "✓ TARGET MET" else fairnessRating.uppercase()
-                                val ratingColor = if (isBestAvailable) GoldStar else when (fairnessRating) {
-                                    "Excellent", "Very Good" -> NeonGreen
-                                    "Good" -> NeonBlue
-                                    "Average" -> GoldStar
-                                    else -> FuchsiaAccent
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val modeColor = when (fairnessSettings.fairnessMode) {
+                                        com.example.util.FairnessMode.STRICT -> CrimsonHot
+                                        com.example.util.FairnessMode.RELAXED -> NeonBlue
+                                        com.example.util.FairnessMode.CUSTOM -> GoldStar
+                                        else -> NeonGreen
+                                    }
+                                    Text(
+                                        text = fairnessSettings.fairnessMode.name,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = modeColor,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(modeColor.copy(alpha = 0.15f))
+                                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                                            .testTag("active_fairness_mode_badge")
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    val isBestAvailable = qualityResult?.qualityLabel == com.example.util.FairnessQualityLabel.BEST_AVAILABLE
+                                    val badgeText = if (isBestAvailable) "BEST AVAILABLE" else if (qualityResult?.passed == true) "✓ TARGET MET" else fairnessRating.uppercase()
+                                    val ratingColor = if (isBestAvailable) GoldStar else when (fairnessRating) {
+                                        "Excellent", "Very Good" -> NeonGreen
+                                        "Good" -> NeonBlue
+                                        "Average" -> GoldStar
+                                        else -> FuchsiaAccent
+                                    }
+                                    Text(
+                                        text = badgeText,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ratingColor,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(ratingColor.copy(alpha = 0.15f))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                            .testTag("fairness_rating")
+                                    )
                                 }
-                                Text(
-                                    text = badgeText,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ratingColor,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(ratingColor.copy(alpha = 0.15f))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                        .testTag("fairness_rating")
-                                )
                             }
                             
                             // Score Display
@@ -658,8 +679,28 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                 ) {
                                     HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Active Fairness Mode:", color = Color.Gray, fontSize = 12.sp)
+                                        Text(diag.fairnessMode, color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text("Fairness Target Score:", color = Color.Gray, fontSize = 12.sp)
-                                        Text("${diag.fairnessTarget}", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text("${diag.fairnessTarget} / 100", color = NeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Max Allowed Strength Diff:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("±${diag.activeSettings.maximumTeamStrengthDifference} pts", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Max Allowed Teammate Penalty:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("${diag.activeSettings.maximumTeammatePenalty} pts", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Max Allowed Opponent Penalty:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("${diag.activeSettings.maximumOpponentPenalty} pts", color = Color.White, fontSize = 12.sp)
+                                    }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Max Retry Batches Allowed:", color = Color.Gray, fontSize = 12.sp)
+                                        Text("${diag.activeSettings.maxAdditionalGenerationAttempts}", color = Color.White, fontSize = 12.sp)
                                     }
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text("Quality Gate Status:", color = Color.Gray, fontSize = 12.sp)

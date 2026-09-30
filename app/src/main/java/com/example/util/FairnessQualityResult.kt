@@ -21,6 +21,19 @@ data class FairnessQualityResult(
     companion object {
         fun evaluate(
             evaluation: FairnessEvaluation,
+            settings: FairnessSettings
+        ): FairnessQualityResult {
+            return evaluate(
+                evaluation = evaluation,
+                minScore = settings.minimumOverallFairnessScore,
+                maxStrengthDiff = settings.maximumTeamStrengthDifference,
+                maxTeammatePenalty = settings.maximumTeammatePenalty,
+                maxOpponentPenalty = settings.maximumOpponentPenalty
+            )
+        }
+
+        fun evaluate(
+            evaluation: FairnessEvaluation,
             minScore: Double = FairnessConfig.MINIMUM_OVERALL_FAIRNESS_SCORE,
             maxStrengthDiff: Int = FairnessConfig.MAXIMUM_TEAM_STRENGTH_DIFFERENCE,
             maxTeammatePenalty: Int = FairnessConfig.MAXIMUM_TEAMMATE_PENALTY,
