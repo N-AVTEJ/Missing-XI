@@ -198,6 +198,48 @@ fun HistoryScreen(viewModel: AppViewModel) {
                                             )
                                         }
 
+                                        // Fairness Profile & Quality Gate Outcome
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(IndigoAccent.copy(alpha = 0.15f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Profile: ${session.fairnessProfile}",
+                                                    color = IndigoAccent,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(if (session.qualityGateOutcome == "Best Available") GoldStar.copy(alpha = 0.15f) else NeonGreen.copy(alpha = 0.15f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = session.qualityGateOutcome,
+                                                    color = if (session.qualityGateOutcome == "Best Available") GoldStar else NeonGreen,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+
+                                            if (session.fairnessScore > 0) {
+                                                Text(
+                                                    text = "Score: ${session.fairnessScore}%",
+                                                    color = Color.LightGray,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
+                                        }
+
                                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             session.teams.forEach { team ->
                                                 Row(

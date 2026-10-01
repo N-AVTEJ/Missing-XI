@@ -77,6 +77,8 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val qualityResult by viewModel.candidateQualityResult.collectAsState()
     val additionalAttempts by viewModel.additionalGenerationAttempts.collectAsState()
     val fairnessSettings by viewModel.fairnessSettings.collectAsState()
+    val appliedProfile by viewModel.appliedMatchProfile.collectAsState()
+    val appliedSnapshot by viewModel.appliedSettingsSnapshot.collectAsState()
 
     var showWhyThisTeamExplanation by remember { mutableStateOf(false) }
 
@@ -288,6 +290,17 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                 }
             }
 
+            // Match-Level Fairness Profile Selection
+            item {
+                AnimatedVisibility(
+                    visible = configState.error == null,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    com.example.ui.components.MatchFairnessProfileSection(viewModel = viewModel)
+                }
+            }
+
             // Shuffle Button Item
             item {
                 AnimatedVisibility(
@@ -359,26 +372,27 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                     )
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    val modeColor = when (fairnessSettings.fairnessMode) {
-                                        com.example.util.FairnessMode.STRICT -> CrimsonHot
-                                        com.example.util.FairnessMode.RELAXED -> NeonBlue
-                                        com.example.util.FairnessMode.CUSTOM -> GoldStar
-                                        else -> NeonGreen
+                                    val profileColor = when (appliedProfile) {
+                                        com.example.util.MatchFairnessProfile.STRICT -> CrimsonHot
+                                        com.example.util.MatchFairnessProfile.RELAXED -> NeonBlue
+                                        com.example.util.MatchFairnessProfile.CUSTOM -> GoldStar
+                                        com.example.util.MatchFairnessProfile.BALANCED -> NeonGreen
+                                        com.example.util.MatchFairnessProfile.GLOBAL_DEFAULT -> IndigoAccent
                                     }
                                     Text(
-                                        text = fairnessSettings.fairnessMode.name,
+                                        text = appliedProfile.displayName,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = modeColor,
+                                        color = profileColor,
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(modeColor.copy(alpha = 0.15f))
+                                            .background(profileColor.copy(alpha = 0.15f))
                                             .padding(horizontal = 6.dp, vertical = 4.dp)
                                             .testTag("active_fairness_mode_badge")
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     val isBestAvailable = qualityResult?.qualityLabel == com.example.util.FairnessQualityLabel.BEST_AVAILABLE
-                                    val badgeText = if (isBestAvailable) "BEST AVAILABLE" else if (qualityResult?.passed == true) "✓ TARGET MET" else fairnessRating.uppercase()
+                                    val badgeText = if (isBestAvailable) "BEST AVAILABLE" else if (qualityResult?.passed == true) "PASSED" else fairnessRating.uppercase()
                                     val ratingColor = if (isBestAvailable) GoldStar else when (fairnessRating) {
                                         "Excellent", "Very Good" -> NeonGreen
                                         "Good" -> NeonBlue
@@ -399,7 +413,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                 }
                             }
                             
-                            // Score Display
+                            // Score Display & Profile / Quality Gate Badges
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -429,9 +443,42 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                         modifier = Modifier.align(Alignment.Bottom).padding(bottom = 8.dp)
                                     )
                                 }
+
+                                // Profile & Quality Gate Status Strip
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color.White.copy(alpha = 0.04f))
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Profile: ", color = Color.Gray, fontSize = 11.sp)
+                                        Text(
+                                            text = appliedProfile.displayName,
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    Text("•", color = Color.Gray, fontSize = 10.sp)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Quality Gate: ", color = Color.Gray, fontSize = 11.sp)
+                                        val isBest = qualityResult?.qualityLabel == com.example.util.FairnessQualityLabel.BEST_AVAILABLE
+                                        Text(
+                                            text = if (isBest) "Best Available" else if (qualityResult?.passed == true) "Passed" else "Failed",
+                                            color = if (isBest) GoldStar else if (qualityResult?.passed == true) NeonGreen else CrimsonHot,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+
                                 if (qualityResult?.qualityLabel == com.example.util.FairnessQualityLabel.BEST_AVAILABLE) {
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "Best available arrangement found. No generated arrangement met all fairness thresholds.",
+                                        text = "No arrangement met all selected fairness thresholds.",
                                         fontSize = 11.sp,
                                         color = GoldStar,
                                         fontWeight = FontWeight.SemiBold

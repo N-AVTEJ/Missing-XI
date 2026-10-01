@@ -110,6 +110,11 @@ fun MatchSetupScreen(viewModel: AppViewModel) {
                 )
             }
 
+            // Match-Level Fairness Profile Selection
+            item {
+                com.example.ui.components.MatchFairnessProfileSection(viewModel = viewModel)
+            }
+
             item {
                 Spacer(modifier = Modifier.height(100.dp))
             }

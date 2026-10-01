@@ -16,6 +16,8 @@ import com.example.util.FairnessConfig
 import com.example.util.FairnessMode
 import com.example.util.FairnessSettings
 import com.example.util.GeneratedTeam
+import com.example.util.MatchFairnessConfig
+import com.example.util.MatchFairnessProfile
 import com.example.util.PairStatistics
 import com.example.util.Player
 import com.example.util.TeammatePairTracker
@@ -382,8 +384,97 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val timestamp: Long,
         val teams: List<GeneratedTeam>,
         val players: List<String>,
-        val joker: String?
+        val joker: String?,
+        val fairnessProfile: String = "Legacy Result",
+        val qualityGateOutcome: String = "Passed",
+        val fairnessScore: Int = 0,
+        val targetScore: Int = 70
     )
+
+    // Match-Level Fairness Profile State
+    val matchFairnessConfig = MutableStateFlow(MatchFairnessConfig())
+    val appliedMatchProfile = MutableStateFlow(MatchFairnessProfile.GLOBAL_DEFAULT)
+    val appliedSettingsSnapshot = MutableStateFlow(FairnessConfig.DEFAULT_FAIRNESS_SETTINGS)
+
+    fun setMatchFairnessProfile(profile: MatchFairnessProfile) {
+        if (isGeneratingCandidates.value) return
+        val current = matchFairnessConfig.value
+        val updated = if (profile == MatchFairnessProfile.CUSTOM && current.profile != MatchFairnessProfile.CUSTOM) {
+            val baseline = current.resolveSettings(fairnessSettings.value)
+            current.copy(
+                profile = profile,
+                customSettings = baseline.copy(fairnessMode = FairnessMode.CUSTOM)
+            )
+        } else {
+            current.copy(profile = profile)
+        }
+        matchFairnessConfig.value = updated
+    }
+
+    fun updateMatchCustomMinScore(score: Double) {
+        if (isGeneratingCandidates.value) return
+        val current = matchFairnessConfig.value
+        val updatedCustom = current.customSettings.copy(
+            minimumOverallFairnessScore = score.coerceIn(0.0, 100.0),
+            fairnessMode = FairnessMode.CUSTOM
+        )
+        matchFairnessConfig.value = current.copy(
+            profile = MatchFairnessProfile.CUSTOM,
+            customSettings = updatedCustom
+        )
+    }
+
+    fun updateMatchCustomMaxStrengthDiff(diff: Int) {
+        if (isGeneratingCandidates.value) return
+        val current = matchFairnessConfig.value
+        val updatedCustom = current.customSettings.copy(
+            maximumTeamStrengthDifference = diff.coerceAtLeast(0),
+            fairnessMode = FairnessMode.CUSTOM
+        )
+        matchFairnessConfig.value = current.copy(
+            profile = MatchFairnessProfile.CUSTOM,
+            customSettings = updatedCustom
+        )
+    }
+
+    fun updateMatchCustomMaxTeammatePenalty(penalty: Int) {
+        if (isGeneratingCandidates.value) return
+        val current = matchFairnessConfig.value
+        val updatedCustom = current.customSettings.copy(
+            maximumTeammatePenalty = penalty.coerceAtLeast(0),
+            fairnessMode = FairnessMode.CUSTOM
+        )
+        matchFairnessConfig.value = current.copy(
+            profile = MatchFairnessProfile.CUSTOM,
+            customSettings = updatedCustom
+        )
+    }
+
+    fun updateMatchCustomMaxOpponentPenalty(penalty: Int) {
+        if (isGeneratingCandidates.value) return
+        val current = matchFairnessConfig.value
+        val updatedCustom = current.customSettings.copy(
+            maximumOpponentPenalty = penalty.coerceAtLeast(0),
+            fairnessMode = FairnessMode.CUSTOM
+        )
+        matchFairnessConfig.value = current.copy(
+            profile = MatchFairnessProfile.CUSTOM,
+            customSettings = updatedCustom
+        )
+    }
+
+    fun updateMatchCustomMaxRetries(attempts: Int) {
+        if (isGeneratingCandidates.value) return
+        val current = matchFairnessConfig.value
+        val updatedCustom = current.customSettings.copy(
+            maxAdditionalGenerationAttempts = attempts.coerceIn(0, 20),
+            fairnessMode = FairnessMode.CUSTOM
+        )
+        matchFairnessConfig.value = current.copy(
+            profile = MatchFairnessProfile.CUSTOM,
+            customSettings = updatedCustom
+        )
+    }
 
     val generatedTeams = MutableStateFlow<List<GeneratedTeam>>(emptyList())
     private var nextShuffleNumber = 1
@@ -666,6 +757,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val existingSigs = generatedSignaturesSet.value.toMutableSet()
         val generatedCandidates = mutableListOf<GeneratedCandidate>()
         
+        // 1. Capture immutable snapshot of match configuration & global settings
+        val activeMatchConfig = matchFairnessConfig.value
+        val globalSettingsSnapshot = fairnessSettings.value
+        val effectiveSettings = activeMatchConfig.resolveSettings(globalSettingsSnapshot)
+        val selectedProfile = activeMatchConfig.profile
+        val profileDisplayName = selectedProfile.displayName
+
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             val startTime = System.currentTimeMillis()
             var candidatesRejected = 0
@@ -681,13 +779,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             var qualityGatePassed = false
             var winningCandidate: GeneratedCandidate? = null
 
-            val currentSettings = fairnessSettings.value
-            android.util.Log.d("FAIRNESS", "[FAIRNESS] Initial candidates target: $candidateTarget, Mode: ${currentSettings.fairnessMode.name}, Max Retries: ${currentSettings.maxAdditionalGenerationAttempts}")
+            android.util.Log.d("FAIRNESS", "[FAIRNESS] Initial candidates target: $candidateTarget, Profile: $profileDisplayName, Mode: ${effectiveSettings.fairnessMode.name}, Max Retries: ${effectiveSettings.maxAdditionalGenerationAttempts}")
 
-            for (attempt in 0..currentSettings.maxAdditionalGenerationAttempts) {
+            for (attempt in 0..effectiveSettings.maxAdditionalGenerationAttempts) {
                 attemptsMade = attempt
                 if (attempt > 0) {
-                    android.util.Log.d("FAIRNESS", "[FAIRNESS] Quality gate FAILED. Generating additional candidates (Attempt $attempt/${currentSettings.maxAdditionalGenerationAttempts})")
+                    android.util.Log.d("FAIRNESS", "[FAIRNESS] Quality gate FAILED. Generating additional candidates (Attempt $attempt/${effectiveSettings.maxAdditionalGenerationAttempts})")
                 }
 
                 var batchRetryCount = 0
@@ -768,7 +865,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                         val fScore = evaluation.overallScore.roundToInt()
                         val fRating = com.example.util.FairnessRankingEngine.getFairnessRating(evaluation.overallScore)
-                        val qResult = com.example.util.FairnessQualityResult.evaluate(evaluation, currentSettings)
+                        val qResult = com.example.util.FairnessQualityResult.evaluate(evaluation, effectiveSettings)
 
                         generatedCandidates.add(
                             GeneratedCandidate(
@@ -800,7 +897,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
                 val topCandidate = generatedCandidates.firstOrNull()
                 if (topCandidate != null) {
-                    val qResult = com.example.util.FairnessQualityResult.evaluate(topCandidate.fairnessEvaluation, currentSettings)
+                    val qResult = com.example.util.FairnessQualityResult.evaluate(topCandidate.fairnessEvaluation, effectiveSettings)
                     android.util.Log.d("FAIRNESS", "[FAIRNESS] Attempt $attempt Best score: ${topCandidate.fairnessScore}, Passed: ${qResult.passed}")
 
                     if (qResult.passed) {
@@ -827,7 +924,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 val top = rankedCandidates.firstOrNull()
                 if (top != null) {
-                    val evalResult = com.example.util.FairnessQualityResult.evaluate(top.fairnessEvaluation, currentSettings)
+                    val evalResult = com.example.util.FairnessQualityResult.evaluate(top.fairnessEvaluation, effectiveSettings)
                     top.copy(
                         qualityResult = evalResult.copy(qualityLabel = com.example.util.FairnessQualityLabel.BEST_AVAILABLE)
                     )
@@ -857,12 +954,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 highestPenaltyFound = highestPenalty,
                 winningCandidatePenalty = finalChosen?.penaltyAnalysis?.totalPenalty ?: 0,
                 winningCandidateFairnessScore = finalChosen?.fairnessScore ?: 0,
-                fairnessTarget = currentSettings.minimumOverallFairnessScore.toInt(),
+                fairnessTarget = effectiveSettings.minimumOverallFairnessScore.toInt(),
                 qualityGateStatus = finalChosen?.qualityResult?.qualityLabel?.name ?: "UNKNOWN",
                 additionalAttempts = attemptsMade,
                 failedCriteria = finalChosen?.qualityResult?.failedChecks ?: emptyList(),
-                fairnessMode = currentSettings.fairnessMode.name,
-                activeSettings = currentSettings
+                fairnessMode = profileDisplayName,
+                activeSettings = effectiveSettings
             )
 
             candidatesGeneratedList.value = rankedCandidates
@@ -870,7 +967,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // Back to main thread for applying the chosen candidate
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 if (finalChosen != null) {
-                    applyCandidateToState(finalChosen, activePlayerNames, numTeams, existingSigs)
+                    applyCandidateToState(
+                        chosen = finalChosen, 
+                        activePlayerNames = activePlayerNames, 
+                        numTeams = numTeams, 
+                        existingSigs = existingSigs,
+                        profile = selectedProfile,
+                        settingsSnapshot = effectiveSettings
+                    )
                     duplicatesPrevented.value += totalCandidatesRejected 
                 }
                 isGeneratingCandidates.value = false
@@ -882,8 +986,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         chosen: GeneratedCandidate, 
         activePlayerNames: List<String>, 
         numTeams: Int,
-        existingSigs: MutableSet<String>
+        existingSigs: MutableSet<String>,
+        profile: MatchFairnessProfile,
+        settingsSnapshot: FairnessSettings
     ) {
+        appliedMatchProfile.value = profile
+        appliedSettingsSnapshot.value = settingsSnapshot
+
         jokerPlayer.value = chosen.joker
         currentCycleJokers.value = chosen.updatedCycle
         previousJokersHistory.value = chosen.updatedHistory
@@ -897,12 +1006,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val shuffleNum = nextShuffleNumber++
         currentShuffleNumber.value = shuffleNum
 
+        val qualityOutcome = if (chosen.qualityResult.passed) "Passed" else "Best Available"
+
         val session = ShuffleSession(
             shuffleNumber = shuffleNum,
             timestamp = System.currentTimeMillis(),
             teams = chosen.teams,
             players = activePlayerNames,
-            joker = chosen.joker
+            joker = chosen.joker,
+            fairnessProfile = profile.displayName,
+            qualityGateOutcome = qualityOutcome,
+            fairnessScore = chosen.fairnessScore,
+            targetScore = settingsSnapshot.minimumOverallFairnessScore.toInt()
         )
         sessionHistory.value = listOf(session) + sessionHistory.value
 
@@ -939,7 +1054,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 teammateVarietyScore = chosen.fairnessEvaluation.teammateScore,
                 opponentVarietyScore = chosen.fairnessEvaluation.opponentScore,
                 teamStrengthScore = chosen.fairnessEvaluation.strengthScore,
-                jokerFairnessScore = chosen.fairnessEvaluation.jokerScore
+                jokerFairnessScore = chosen.fairnessEvaluation.jokerScore,
+                fairnessProfile = profile.displayName,
+                settingsSnapshotJson = settingsSnapshot.toSummary(),
+                fairnessThresholdUsed = settingsSnapshot.minimumOverallFairnessScore,
+                qualityGateOutcome = qualityOutcome
             )
             repository.insertSession(dbSession)
             loadLatestSession() // Update latest session state

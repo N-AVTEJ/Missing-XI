@@ -14,5 +14,9 @@ data class SessionEntity(
     val teammateVarietyScore: Double = 0.0,
     val opponentVarietyScore: Double = 0.0,
     val teamStrengthScore: Double = 0.0,
-    val jokerFairnessScore: Double = 0.0
+    val jokerFairnessScore: Double = 0.0,
+    val fairnessProfile: String = "Legacy Result",
+    val settingsSnapshotJson: String = "",
+    val fairnessThresholdUsed: Double = 70.0,
+    val qualityGateOutcome: String = ""
 )

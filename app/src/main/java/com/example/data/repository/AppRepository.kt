@@ -21,6 +21,7 @@ class AppRepository(
     val allActivePlayers: Flow<List<PlayerEntity>> = playerDao.getAllActivePlayers()
     val recentlyUsedPlayers: Flow<List<PlayerEntity>> = playerDao.getRecentlyUsedPlayers()
     val sessionCount: Flow<Int> = sessionDao.getSessionCount()
+    val allSessions: Flow<List<SessionEntity>> = sessionDao.getAllSessions()
 
     suspend fun insertLineup(lineup: LineupEntity) {
         lineupDao.insertLineup(lineup)
