@@ -31,11 +31,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.components.FixedGroupsDialog
 import com.example.ui.components.FrostedMeshBackground
 import com.example.ui.components.GlassyCard
 import com.example.ui.components.JokerCard
 import com.example.ui.components.JokerRotationSection
 import com.example.ui.components.NeonButton
+import com.example.ui.components.PlayerConstraintDialog
+import com.example.ui.components.PlayerConstraintsCard
 import com.example.ui.theme.CrimsonHot
 import com.example.ui.theme.FuchsiaAccent
 import com.example.ui.theme.GoldStar
@@ -43,6 +46,12 @@ import com.example.ui.theme.IndigoAccent
 import com.example.ui.theme.NeonBlue
 import com.example.ui.theme.NeonGreen
 import com.example.ui.viewmodel.AppViewModel
+import com.example.util.LockedPlayerGroup
+import com.example.util.Player
+import com.example.util.PlayerMatchConstraint
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Lock
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -79,6 +88,28 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val fairnessSettings by viewModel.fairnessSettings.collectAsState()
     val appliedProfile by viewModel.appliedMatchProfile.collectAsState()
     val appliedSnapshot by viewModel.appliedSettingsSnapshot.collectAsState()
+
+    val playerMatchConstraints by viewModel.playerMatchConstraints.collectAsState()
+    val lockedPlayerGroups by viewModel.lockedPlayerGroups.collectAsState()
+    val constraintValidationError by viewModel.constraintValidationError.collectAsState()
+    val excludedPlayersList by viewModel.excludedPlayersList.collectAsState()
+    val allActivePlayers by viewModel.allActivePlayers.collectAsState()
+
+    var showGroupsDialog by remember { mutableStateOf(false) }
+    var playerForConstraintDialog by remember { mutableStateOf<Player?>(null) }
+
+    val activePlayerMap = remember(allActivePlayers) { allActivePlayers.associateBy { it.displayName } }
+    val playerObjects = remember(playersList, allActivePlayers) {
+        playersList.mapIndexed { index, name ->
+            val cleanName = name.trim()
+            val dbPlayer = activePlayerMap[cleanName]
+            Player(
+                id = dbPlayer?.id ?: "player_${index + 1}",
+                name = cleanName,
+                skillRating = dbPlayer?.skillRating ?: 5
+            )
+        }.filter { it.name.isNotBlank() }
+    }
 
     var showWhyThisTeamExplanation by remember { mutableStateOf(false) }
 
@@ -298,6 +329,190 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                     exit = fadeOut() + shrinkVertically()
                 ) {
                     com.example.ui.components.MatchFairnessProfileSection(viewModel = viewModel)
+                }
+            }
+
+            // Match Constraints Overview & Error Banner
+            item {
+                AnimatedVisibility(
+                    visible = configState.error == null,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    PlayerConstraintsCard(
+                        constraints = playerMatchConstraints,
+                        groups = lockedPlayerGroups,
+                        validationError = constraintValidationError,
+                        onManageGroupsClick = { showGroupsDialog = true },
+                        onClearConstraintsClick = { viewModel.clearMatchConstraints() },
+                        onDismissError = { viewModel.clearConstraintValidationError() }
+                    )
+                }
+            }
+
+            // Player Constraints Roster List
+            item {
+                AnimatedVisibility(
+                    visible = configState.error == null,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    GlassyCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("match_roster_constraints_card"),
+                        cornerRadius = 16
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = null,
+                                        tint = NeonBlue,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "PLAYER CONSTRAINTS",
+                                        color = NeonBlue,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        letterSpacing = 1.sp
+                                    )
+                                }
+                                Text(
+                                    text = "Tap player to lock / exclude",
+                                    color = Color.Gray,
+                                    fontSize = 10.sp
+                                )
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                playerObjects.forEach { player ->
+                                    val constraint = playerMatchConstraints[player.id]
+                                    val isLocked = constraint?.isLocked == true && constraint.lockedTeamIndex != null
+                                    val isExcluded = constraint?.isExcluded == true
+                                    val group = lockedPlayerGroups.firstOrNull { it.playerIds.contains(player.id) }
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(
+                                                when {
+                                                    isExcluded -> CrimsonHot.copy(alpha = 0.08f)
+                                                    isLocked -> NeonGreen.copy(alpha = 0.08f)
+                                                    group != null -> FuchsiaAccent.copy(alpha = 0.08f)
+                                                    else -> Color.White.copy(alpha = 0.03f)
+                                                }
+                                            )
+                                            .border(
+                                                1.dp,
+                                                when {
+                                                    isExcluded -> CrimsonHot.copy(alpha = 0.3f)
+                                                    isLocked -> NeonGreen.copy(alpha = 0.3f)
+                                                    group != null -> FuchsiaAccent.copy(alpha = 0.3f)
+                                                    else -> Color.White.copy(alpha = 0.05f)
+                                                },
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable { playerForConstraintDialog = player }
+                                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                                            .testTag("roster_player_constraint_row_${player.id}"),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(
+                                                text = player.name,
+                                                color = if (isExcluded) Color.Gray else Color.White,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 13.sp
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "(${player.skillRating}★)",
+                                                color = GoldStar,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            if (isExcluded) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(CrimsonHot.copy(alpha = 0.2f))
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "EXCLUDED",
+                                                        color = CrimsonHot,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                            if (isLocked) {
+                                                val teamLabel = constraint?.getLockedTeamLabel() ?: "Locked"
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(NeonGreen.copy(alpha = 0.2f))
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "🔒 $teamLabel",
+                                                        color = NeonGreen,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                            if (group != null) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(FuchsiaAccent.copy(alpha = 0.2f))
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "👥 ${group.name}",
+                                                        color = FuchsiaAccent,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                            if (!isExcluded && !isLocked && group == null) {
+                                                Text(
+                                                    text = "Configure",
+                                                    color = Color.DarkGray,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1214,28 +1429,58 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                             HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
 
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                team.players.forEachIndexed { _, player ->
+                                team.players.forEachIndexed { pIdx, player ->
+                                    val playerId = team.playerIds.getOrNull(pIdx)
+                                    val isLocked = playerId != null && playerMatchConstraints[playerId]?.isLocked == true
+                                    val group = playerId?.let { id -> lockedPlayerGroups.firstOrNull { it.playerIds.contains(id) } }
+
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(Color.White.copy(alpha = 0.03f))
                                             .padding(horizontal = 10.dp, vertical = 6.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Person,
-                                            contentDescription = "Player",
-                                            tint = accentColor.copy(alpha = 0.7f),
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = player,
-                                            color = Color.White,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontSize = 13.sp
-                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = "Player",
+                                                tint = accentColor.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = player,
+                                                color = Color.White,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            if (isLocked) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(NeonGreen.copy(alpha = 0.2f))
+                                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text("🔒 Locked", color = NeonGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                            if (group != null) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(FuchsiaAccent.copy(alpha = 0.2f))
+                                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text("👥 ${group.name}", color = FuchsiaAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1394,9 +1639,136 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                 }
             }
 
+            // Excluded Players Card ("NOT PLAYING")
+            if (excludedPlayersList.isNotEmpty()) {
+                item {
+                    GlassyCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("excluded_players_card"),
+                        cornerRadius = 20
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Block,
+                                        contentDescription = "Not Playing",
+                                        tint = CrimsonHot,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "NOT PLAYING (EXCLUDED)",
+                                        color = CrimsonHot,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        letterSpacing = 1.sp
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(CrimsonHot.copy(alpha = 0.15f))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "${excludedPlayersList.size} Players",
+                                        color = CrimsonHot,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                excludedPlayersList.forEach { player ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(CrimsonHot.copy(alpha = 0.05f))
+                                            .border(1.dp, CrimsonHot.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = Color.Gray,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = player.name,
+                                                color = Color.LightGray,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "(${player.skillRating}★)",
+                                                color = GoldStar,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+
+                                        TextButton(
+                                            onClick = { viewModel.togglePlayerExclusion(player.id) },
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                            modifier = Modifier.height(26.dp).testTag("unexclude_btn_${player.id}")
+                                        ) {
+                                            Text("Include", color = NeonGreen, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             item {
                 Spacer(modifier = Modifier.height(100.dp))
             }
+        }
+
+        if (showGroupsDialog) {
+            FixedGroupsDialog(
+                activePlayers = playerObjects,
+                constraints = playerMatchConstraints,
+                groups = lockedPlayerGroups,
+                onCreateGroup = { name, playerIds -> viewModel.createFixedGroup(name, playerIds) },
+                onDeleteGroup = { groupId -> viewModel.deleteFixedGroup(groupId) },
+                onDismiss = { showGroupsDialog = false }
+            )
+        }
+
+        val selectedPlayer = playerForConstraintDialog
+        if (selectedPlayer != null) {
+            val numTeams = numberOfTeams.toIntOrNull() ?: 2
+            PlayerConstraintDialog(
+                player = selectedPlayer,
+                numTeams = numTeams,
+                currentConstraint = playerMatchConstraints[selectedPlayer.id],
+                existingGroups = lockedPlayerGroups,
+                onSaveConstraint = { constraint -> viewModel.setPlayerConstraint(constraint) },
+                onAssignToGroup = { groupId -> viewModel.assignPlayerToGroup(selectedPlayer.id, groupId) },
+                onDismiss = { playerForConstraintDialog = null }
+            )
         }
     }
 }

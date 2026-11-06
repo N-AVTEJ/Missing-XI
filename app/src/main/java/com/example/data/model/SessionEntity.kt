@@ -18,5 +18,8 @@ data class SessionEntity(
     val fairnessProfile: String = "Legacy Result",
     val settingsSnapshotJson: String = "",
     val fairnessThresholdUsed: Double = 70.0,
-    val qualityGateOutcome: String = ""
+    val qualityGateOutcome: String = "",
+    val lockedPlayerIdsJson: String = "[]",
+    val fixedGroupsJson: String = "[]",
+    val excludedPlayerIdsJson: String = "[]"
 )

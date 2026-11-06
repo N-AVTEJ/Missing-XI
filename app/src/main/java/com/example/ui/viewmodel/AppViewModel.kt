@@ -20,6 +20,9 @@ import com.example.util.MatchFairnessConfig
 import com.example.util.MatchFairnessProfile
 import com.example.util.PairStatistics
 import com.example.util.Player
+import com.example.util.PlayerConstraintValidator
+import com.example.util.PlayerMatchConstraint
+import com.example.util.LockedPlayerGroup
 import com.example.util.TeammatePairTracker
 import org.json.JSONArray
 import kotlinx.coroutines.delay
@@ -322,7 +325,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val fairnessScore: Int = 0,
         val fairnessRating: String = "",
         val fairnessEvaluation: com.example.util.FairnessEvaluation = com.example.util.FairnessEvaluation(),
-        val qualityResult: com.example.util.FairnessQualityResult = com.example.util.FairnessQualityResult()
+        val qualityResult: com.example.util.FairnessQualityResult = com.example.util.FairnessQualityResult(),
+        val excludedPlayers: List<Player> = emptyList(),
+        val lockedPlayerIds: List<String> = emptyList(),
+        val fixedGroups: List<LockedPlayerGroup> = emptyList()
     )
 
     val isGeneratingCandidates = MutableStateFlow(false)
@@ -388,7 +394,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val fairnessProfile: String = "Legacy Result",
         val qualityGateOutcome: String = "Passed",
         val fairnessScore: Int = 0,
-        val targetScore: Int = 70
+        val targetScore: Int = 70,
+        val lockedPlayerNames: List<String> = emptyList(),
+        val fixedGroupSummaries: List<String> = emptyList(),
+        val excludedPlayerNames: List<String> = emptyList()
     )
 
     // Match-Level Fairness Profile State
@@ -500,7 +509,92 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PairStatistics())
 
     val candidateOpponentAnalysis = MutableStateFlow<com.example.util.OpponentPairAnalysis?>(null)
-    
+
+    // Player Match Constraints State
+    val playerMatchConstraints = MutableStateFlow<Map<String, PlayerMatchConstraint>>(emptyMap())
+    val lockedPlayerGroups = MutableStateFlow<List<LockedPlayerGroup>>(emptyList())
+    val constraintValidationError = MutableStateFlow<String?>(null)
+    val excludedPlayersList = MutableStateFlow<List<Player>>(emptyList())
+
+    fun setPlayerConstraint(constraint: PlayerMatchConstraint) {
+        val updated = playerMatchConstraints.value.toMutableMap()
+        updated[constraint.playerId] = constraint
+        playerMatchConstraints.value = updated
+        constraintValidationError.value = null
+    }
+
+    fun setPlayerLock(playerId: String, teamIndex: Int?) {
+        val current = playerMatchConstraints.value[playerId] ?: PlayerMatchConstraint(playerId = playerId)
+        val updated = playerMatchConstraints.value.toMutableMap()
+        if (teamIndex != null) {
+            updated[playerId] = current.copy(isLocked = true, lockedTeamIndex = teamIndex, isExcluded = false)
+        } else {
+            updated[playerId] = current.copy(isLocked = false, lockedTeamIndex = null)
+        }
+        playerMatchConstraints.value = updated
+        constraintValidationError.value = null
+    }
+
+    fun togglePlayerExclusion(playerId: String) {
+        val current = playerMatchConstraints.value[playerId] ?: PlayerMatchConstraint(playerId = playerId)
+        val updated = playerMatchConstraints.value.toMutableMap()
+        val willExclude = !current.isExcluded
+        if (willExclude) {
+            lockedPlayerGroups.value = lockedPlayerGroups.value.map { g ->
+                if (playerId in g.playerIds) g.copy(playerIds = g.playerIds - playerId) else g
+            }.filter { it.playerIds.size >= 2 }
+            updated[playerId] = current.copy(isExcluded = true, isLocked = false, lockedTeamIndex = null)
+        } else {
+            updated[playerId] = current.copy(isExcluded = false)
+        }
+        playerMatchConstraints.value = updated
+        constraintValidationError.value = null
+    }
+
+    fun assignPlayerToGroup(playerId: String, targetGroupId: String?) {
+        val updatedGroups = lockedPlayerGroups.value.map { g ->
+            if (playerId in g.playerIds) g.copy(playerIds = g.playerIds - playerId) else g
+        }.toMutableList()
+
+        if (targetGroupId != null) {
+            val targetIndex = updatedGroups.indexOfFirst { it.id == targetGroupId }
+            if (targetIndex >= 0) {
+                val g = updatedGroups[targetIndex]
+                updatedGroups[targetIndex] = g.copy(playerIds = (g.playerIds + playerId).distinct())
+            }
+        }
+        lockedPlayerGroups.value = updatedGroups.filter { it.playerIds.isNotEmpty() }
+        constraintValidationError.value = null
+    }
+
+    fun createFixedGroup(name: String, playerIds: List<String>) {
+        val cleanName = name.trim().ifEmpty { "Group ${lockedPlayerGroups.value.size + 1}" }
+        val updatedExisting = lockedPlayerGroups.value.map { g ->
+            g.copy(playerIds = g.playerIds.filter { it !in playerIds })
+        }.filter { it.playerIds.size >= 2 }
+
+        val newGroup = LockedPlayerGroup(
+            name = cleanName,
+            playerIds = playerIds.distinct()
+        )
+        lockedPlayerGroups.value = updatedExisting + newGroup
+        constraintValidationError.value = null
+    }
+
+    fun deleteFixedGroup(groupId: String) {
+        lockedPlayerGroups.value = lockedPlayerGroups.value.filter { it.id != groupId }
+        constraintValidationError.value = null
+    }
+
+    fun clearMatchConstraints() {
+        playerMatchConstraints.value = emptyMap()
+        lockedPlayerGroups.value = emptyList()
+        constraintValidationError.value = null
+    }
+
+    fun clearConstraintValidationError() {
+        constraintValidationError.value = null
+    }
 
     val generatedSignaturesSet = MutableStateFlow<Set<String>>(emptySet())
     val duplicatesPrevented = MutableStateFlow(0)
@@ -743,10 +837,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val activePlayerNames = activePlayerObjects.map { it.name }
         if (numTeams < 2 || activePlayerObjects.size < numTeams) return
 
+        // 1. Validate match constraints
+        val validation = com.example.util.PlayerConstraintValidator.validate(
+            activePlayers = activePlayerObjects,
+            numTeams = numTeams,
+            constraints = playerMatchConstraints.value,
+            groups = lockedPlayerGroups.value
+        )
+        if (!validation.isValid) {
+            constraintValidationError.value = validation.errorMessage
+            return
+        }
+        constraintValidationError.value = null
+
+        val currentConstraints = playerMatchConstraints.value
+        val currentGroups = lockedPlayerGroups.value
+
+        val excludedPlayerObjects = activePlayerObjects.filter { currentConstraints[it.id]?.isExcluded == true }
+        val eligiblePlayerObjects = activePlayerObjects.filter { currentConstraints[it.id]?.isExcluded != true }
+        val eligiblePlayerNames = eligiblePlayerObjects.map { it.name }
+
         val candidateTarget = when {
-            activePlayerObjects.size <= 10 -> 25
-            activePlayerObjects.size in 11..16 -> 50
-            activePlayerObjects.size in 17..24 -> 100
+            eligiblePlayerObjects.size <= 10 -> 25
+            eligiblePlayerObjects.size in 11..16 -> 50
+            eligiblePlayerObjects.size in 17..24 -> 100
             else -> 150
         }
         val maxRetries = candidateTarget * 10
@@ -757,7 +871,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val existingSigs = generatedSignaturesSet.value.toMutableSet()
         val generatedCandidates = mutableListOf<GeneratedCandidate>()
         
-        // 1. Capture immutable snapshot of match configuration & global settings
+        // Capture immutable snapshot of match configuration & global settings
         val activeMatchConfig = matchFairnessConfig.value
         val globalSettingsSnapshot = fairnessSettings.value
         val effectiveSettings = activeMatchConfig.resolveSettings(globalSettingsSnapshot)
@@ -766,9 +880,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             val startTime = System.currentTimeMillis()
-            var candidatesRejected = 0
-            var retryCount = 0
-            
             val currentPairCounts = teammatePairCounts.value
             val currentOpponentCounts = opponentPairCounts.value
 
@@ -796,30 +907,107 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     var tempHistory = previousJokersHistory.value.toMutableList()
                     val tempPool: List<Player>
 
-                    if (activePlayerObjects.size % numTeams != 0) {
-                        val cycleSet = tempCycle.toSet()
-                        var eligible = activePlayerObjects.filter { it.name !in cycleSet && it.id !in cycleSet }
-
-                        if (eligible.isEmpty()) {
-                            tempCycle.clear()
-                            eligible = activePlayerObjects
+                    // Joker Assignment: only when eligiblePlayerObjects.size % numTeams != 0
+                    if (eligiblePlayerObjects.size % numTeams != 0) {
+                        // Joker CANNOT be an excluded player, CANNOT be locked to a team, and CANNOT be part of a fixed group
+                        val jokerEligible = eligiblePlayerObjects.filter { player ->
+                            val c = currentConstraints[player.id]
+                            val isLocked = c?.isLocked == true && c.lockedTeamIndex != null
+                            val inGroup = currentGroups.any { g -> g.playerIds.contains(player.id) }
+                            !isLocked && !inGroup
                         }
 
-                        val pickedJoker = eligible.shuffled().first()
+                        val cycleSet = tempCycle.toSet()
+                        var jokerCandidates = jokerEligible.filter { it.name !in cycleSet && it.id !in cycleSet }
+                        if (jokerCandidates.isEmpty()) {
+                            tempCycle.clear()
+                            jokerCandidates = jokerEligible
+                        }
+
+                        val pickedJoker = if (jokerCandidates.isNotEmpty()) jokerCandidates.shuffled().first() else jokerEligible.shuffled().first()
                         tempJoker = pickedJoker.name
 
                         tempCycle.add(pickedJoker.name)
                         tempHistory.add(pickedJoker.name)
 
-                        tempPool = activePlayerObjects.filter { it.id != pickedJoker.id }.shuffled()
+                        tempPool = eligiblePlayerObjects.filter { it.id != pickedJoker.id }
                     } else {
                         tempJoker = null
-                        tempPool = activePlayerObjects.shuffled()
+                        tempPool = eligiblePlayerObjects
+                    }
+
+                    // Target Capacities
+                    val poolSize = tempPool.size
+                    val targetCapacities = IntArray(numTeams) { i ->
+                        poolSize / numTeams + (if (i < poolSize % numTeams) 1 else 0)
+                    }
+
+                    // Effective Team Locks (direct locks + group lock propagation)
+                    val effectiveLocks = mutableMapOf<String, Int>()
+                    for (player in tempPool) {
+                        val c = currentConstraints[player.id]
+                        if (c?.isLocked == true && c.lockedTeamIndex != null) {
+                            effectiveLocks[player.id] = c.lockedTeamIndex
+                        }
+                    }
+
+                    for (group in currentGroups) {
+                        val lockedTeam = group.playerIds.firstNotNullOfOrNull { effectiveLocks[it] }
+                        if (lockedTeam != null) {
+                            for (id in group.playerIds) {
+                                effectiveLocks[id] = lockedTeam
+                            }
+                        }
                     }
 
                     val teamsList = List(numTeams) { mutableListOf<Player>() }
-                    tempPool.forEachIndexed { index, player ->
-                        teamsList[index % numTeams].add(player)
+                    val placedPlayerIds = mutableSetOf<String>()
+
+                    // 1. Place locked players into their designated teams
+                    for (player in tempPool) {
+                        val lockedTeam = effectiveLocks[player.id]
+                        if (lockedTeam != null && lockedTeam in 0 until numTeams) {
+                            teamsList[lockedTeam].add(player)
+                            placedPlayerIds.add(player.id)
+                        }
+                    }
+
+                    // 2. Place Floating Groups (groups with no locked team)
+                    val floatingGroups = currentGroups.filter { group ->
+                        group.playerIds.none { effectiveLocks.containsKey(it) }
+                    }.shuffled()
+
+                    var groupPlacementFailed = false
+                    for (group in floatingGroups) {
+                        val groupPlayers = tempPool.filter { it.id in group.playerIds }
+                        val groupSize = groupPlayers.size
+                        val availableTeams = (0 until numTeams).filter { teamIdx ->
+                            teamsList[teamIdx].size + groupSize <= targetCapacities[teamIdx]
+                        }
+                        if (availableTeams.isNotEmpty()) {
+                            val chosenTeam = availableTeams.shuffled().first()
+                            teamsList[chosenTeam].addAll(groupPlayers)
+                            groupPlayers.forEach { placedPlayerIds.add(it.id) }
+                        } else {
+                            groupPlacementFailed = true
+                            break
+                        }
+                    }
+
+                    if (groupPlacementFailed) {
+                        batchRetryCount++
+                        totalRetryCount++
+                        continue
+                    }
+
+                    // 3. Distribute remaining unplaced players
+                    val unplacedPlayers = tempPool.filter { it.id !in placedPlayerIds }.shuffled()
+                    var unplacedIndex = 0
+                    for (teamIdx in 0 until numTeams) {
+                        while (teamsList[teamIdx].size < targetCapacities[teamIdx] && unplacedIndex < unplacedPlayers.size) {
+                            teamsList[teamIdx].add(unplacedPlayers[unplacedIndex])
+                            unplacedIndex++
+                        }
                     }
 
                     val candidateTeams = teamsList.mapIndexed { index, players ->
@@ -860,7 +1048,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             opponentAnalysis = opponentAnalysis,
                             strengthAnalysis = strengthAnalysis,
                             joker = tempJoker,
-                            activePlayers = activePlayerNames,
+                            activePlayers = eligiblePlayerNames,
                             cycleJokers = tempCycle
                         )
                         val fScore = evaluation.overallScore.roundToInt()
@@ -882,7 +1070,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                 fairnessScore = fScore,
                                 fairnessRating = fRating,
                                 fairnessEvaluation = evaluation,
-                                qualityResult = qResult
+                                qualityResult = qResult,
+                                excludedPlayers = excludedPlayerObjects,
+                                lockedPlayerIds = currentConstraints.filter { it.value.isLocked && it.value.lockedTeamIndex != null }.keys.toList(),
+                                fixedGroups = currentGroups
                             )
                         )
                         candidateGenerationProgress.value = generatedCandidates.size
@@ -969,7 +1160,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 if (finalChosen != null) {
                     applyCandidateToState(
                         chosen = finalChosen, 
-                        activePlayerNames = activePlayerNames, 
+                        activePlayerObjects = activePlayerObjects, 
                         numTeams = numTeams, 
                         existingSigs = existingSigs,
                         profile = selectedProfile,
@@ -984,7 +1175,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun applyCandidateToState(
         chosen: GeneratedCandidate, 
-        activePlayerNames: List<String>, 
+        activePlayerObjects: List<Player>, 
         numTeams: Int,
         existingSigs: MutableSet<String>,
         profile: MatchFairnessProfile,
@@ -1008,16 +1199,31 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         val qualityOutcome = if (chosen.qualityResult.passed) "Passed" else "Best Available"
 
+        val participatingPlayerNames = (chosen.teams.flatMap { it.players } + (chosen.joker?.let { listOf(it) } ?: emptyList())).distinct()
+        val lockedPlayerNames = chosen.lockedPlayerIds.mapNotNull { id ->
+            activePlayerObjects.firstOrNull { it.id == id }?.name
+        }
+        val groupSummaries = chosen.fixedGroups.map { g ->
+            val memberNames = g.playerIds.mapNotNull { id -> activePlayerObjects.firstOrNull { it.id == id }?.name }
+            "${g.name}: ${memberNames.joinToString(", ")}"
+        }
+        val excludedNames = chosen.excludedPlayers.map { it.name }
+
+        excludedPlayersList.value = chosen.excludedPlayers
+
         val session = ShuffleSession(
             shuffleNumber = shuffleNum,
             timestamp = System.currentTimeMillis(),
             teams = chosen.teams,
-            players = activePlayerNames,
+            players = participatingPlayerNames,
             joker = chosen.joker,
             fairnessProfile = profile.displayName,
             qualityGateOutcome = qualityOutcome,
             fairnessScore = chosen.fairnessScore,
-            targetScore = settingsSnapshot.minimumOverallFairnessScore.toInt()
+            targetScore = settingsSnapshot.minimumOverallFairnessScore.toInt(),
+            lockedPlayerNames = lockedPlayerNames,
+            fixedGroupSummaries = groupSummaries,
+            excludedPlayerNames = excludedNames
         )
         sessionHistory.value = listOf(session) + sessionHistory.value
 
@@ -1044,7 +1250,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         // Save session and players to database
         viewModelScope.launch {
-            val jsonArray = org.json.JSONArray(activePlayerNames)
+            val jsonArray = org.json.JSONArray(participatingPlayerNames)
+            val lockedIdsJson = org.json.JSONArray(chosen.lockedPlayerIds).toString()
+            val groupsJson = org.json.JSONArray(chosen.fixedGroups.map { g ->
+                org.json.JSONObject().apply {
+                    put("id", g.id)
+                    put("name", g.name)
+                    put("playerIds", org.json.JSONArray(g.playerIds))
+                }.toString()
+            }).toString()
+            val excludedIdsJson = org.json.JSONArray(chosen.excludedPlayers.map { it.id }).toString()
+
             val dbSession = com.example.data.model.SessionEntity(
                 playerIdsJson = jsonArray.toString(),
                 teamCount = numTeams,
@@ -1058,13 +1274,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 fairnessProfile = profile.displayName,
                 settingsSnapshotJson = settingsSnapshot.toSummary(),
                 fairnessThresholdUsed = settingsSnapshot.minimumOverallFairnessScore,
-                qualityGateOutcome = qualityOutcome
+                qualityGateOutcome = qualityOutcome,
+                lockedPlayerIdsJson = lockedIdsJson,
+                fixedGroupsJson = groupsJson,
+                excludedPlayerIdsJson = excludedIdsJson
             )
             repository.insertSession(dbSession)
             loadLatestSession() // Update latest session state
 
             val currentTime = System.currentTimeMillis()
-            activePlayerNames.forEach { playerName ->
+            participatingPlayerNames.forEach { playerName ->
                 val existingPlayer = repository.getPlayerByName(playerName)
                 val isJoker = playerName == chosen.joker
 

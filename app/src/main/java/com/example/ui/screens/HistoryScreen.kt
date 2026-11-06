@@ -240,6 +240,60 @@ fun HistoryScreen(viewModel: AppViewModel) {
                                             }
                                         }
 
+                                        // Match Constraints Badges
+                                        if (session.lockedPlayerNames.isNotEmpty() || session.fixedGroupSummaries.isNotEmpty() || session.excludedPlayerNames.isNotEmpty()) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                if (session.lockedPlayerNames.isNotEmpty()) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(NeonGreen.copy(alpha = 0.15f))
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "🔒 ${session.lockedPlayerNames.size} Locked",
+                                                            color = NeonGreen,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                                if (session.fixedGroupSummaries.isNotEmpty()) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(FuchsiaAccent.copy(alpha = 0.15f))
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "👥 ${session.fixedGroupSummaries.size} Groups",
+                                                            color = FuchsiaAccent,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                                if (session.excludedPlayerNames.isNotEmpty()) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(CrimsonHot.copy(alpha = 0.15f))
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "🚫 ${session.excludedPlayerNames.size} Excluded",
+                                                            color = CrimsonHot,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
                                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             session.teams.forEach { team ->
                                                 Row(
