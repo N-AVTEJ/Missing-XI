@@ -19,6 +19,12 @@ interface SessionDao {
     @Query("SELECT COUNT(*) FROM sessions")
     fun getSessionCount(): Flow<Int>
 
+    @Query("SELECT * FROM sessions WHERE matchId = :matchId LIMIT 1")
+    suspend fun getSessionByMatchId(matchId: String): SessionEntity?
+
+    @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
+    suspend fun getSessionById(id: Int): SessionEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSession(session: SessionEntity): Long
 

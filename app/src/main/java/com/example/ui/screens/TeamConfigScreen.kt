@@ -59,7 +59,10 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TeamConfigScreen(viewModel: AppViewModel) {
+fun TeamConfigScreen(
+    viewModel: AppViewModel,
+    onProceedToToss: () -> Unit = {}
+) {
     val numberOfTeams by viewModel.configNumberOfTeams.collectAsState()
     val configState by viewModel.teamConfigState.collectAsState()
     val playersList by viewModel.buildPlayersList.collectAsState()
@@ -98,6 +101,7 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val allActivePlayers by viewModel.allActivePlayers.collectAsState()
     val manualEditState by viewModel.manualEditState.collectAsState()
     val wasManuallyEdited by viewModel.currentArrangementWasManuallyEdited.collectAsState()
+    val currentMatchStatus by viewModel.currentMatchStatus.collectAsState()
 
     var showGroupsDialog by remember { mutableStateOf(false) }
     var playerForConstraintDialog by remember { mutableStateOf<Player?>(null) }
@@ -1359,7 +1363,11 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                         onToggleTemporaryImbalance = { viewModel.setAllowTemporaryImbalance(it) },
                         onDismissError = { viewModel.dismissManualEditError() },
                         onValidateForConfirm = { viewModel.validateManualEditForConfirmation() },
-                        onConfirmTeams = { viewModel.confirmManualEdits() },
+                        onConfirmTeams = {
+                            viewModel.confirmManualEditsAndProceed(
+                                onReadyForToss = { onProceedToToss() }
+                            )
+                        },
                         onCancelEdit = { viewModel.exitManualEditMode() }
                     )
                 }
@@ -1566,6 +1574,35 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                             }
                         }
                     }
+                }
+
+                // Confirm Teams & Proceed to Coin Toss Action
+                item(key = "confirm_teams_toss_cta") {
+                    val isAlreadyConfirmed = currentMatchStatus == com.example.util.MatchStatus.TEAMS_CONFIRMED ||
+                        currentMatchStatus == com.example.util.MatchStatus.TOSS_COMPLETED
+                    val isCompleted = currentMatchStatus == com.example.util.MatchStatus.COMPLETED
+
+                    NeonButton(
+                        text = when {
+                            isCompleted -> "View Toss & Match Result"
+                            isAlreadyConfirmed -> "Proceed to Coin Toss"
+                            else -> "Confirm Teams & Go to Toss"
+                        },
+                        onClick = {
+                            if (isCompleted) {
+                                onProceedToToss()
+                            } else {
+                                viewModel.confirmGeneratedTeams(
+                                    onReadyForToss = { onProceedToToss() }
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp)
+                            .testTag("confirm_teams_and_toss_button"),
+                        glowingColor = GoldStar
+                    )
                 }
             }
 

@@ -65,7 +65,8 @@ sealed class NavigationItem(val route: String, val title: String, val icon: Imag
 fun MainNavigationContainer() {
   val navController = rememberNavController()
   val viewModel: AppViewModel = viewModel()
-  
+  val isCoinFlipping by viewModel.isCoinFlipping.collectAsState()
+
   val navBackStackEntry by navController.currentBackStackEntryAsState()
   val currentRoute = navBackStackEntry?.destination?.route ?: NavigationItem.Home.route
 
@@ -76,7 +77,8 @@ fun MainNavigationContainer() {
     bottomBar = {
       CustomBottomNavigationBar(
         navController = navController,
-        currentRoute = currentRoute
+        currentRoute = currentRoute,
+        isNavigationLocked = isCoinFlipping
       )
     },
     contentWindowInsets = WindowInsets.safeDrawing
@@ -122,16 +124,58 @@ fun MainNavigationContainer() {
           )
         }
         composable("teams") {
-          TeamConfigScreen(viewModel = viewModel)
+          TeamConfigScreen(
+              viewModel = viewModel,
+              onProceedToToss = {
+                  navController.navigate("toss") {
+                      launchSingleTop = true
+                  }
+              }
+          )
         }
         composable("setup") {
           MatchSetupScreen(viewModel = viewModel)
         }
         composable("toss") {
-          TossScreen(viewModel = viewModel)
+          TossScreen(
+              viewModel = viewModel,
+              onMatchFinalized = { matchId ->
+                  navController.navigate("matchFinalization/$matchId") {
+                      launchSingleTop = true
+                  }
+              },
+              onOpenCompletedSummary = { matchId ->
+                  navController.navigate("matchFinalization/$matchId") {
+                      launchSingleTop = true
+                  }
+              }
+          )
+        }
+        composable("matchFinalization/{matchId}") { backStackEntry ->
+          val matchId = backStackEntry.arguments?.getString("matchId") ?: ""
+          MatchFinalizationScreen(
+              viewModel = viewModel,
+              matchId = matchId,
+              onNavigateBack = { navController.popBackStack() },
+              onStartNewMatch = {
+                  navController.navigate("build") {
+                      popUpTo(navController.graph.startDestinationId) {
+                          saveState = false
+                      }
+                      launchSingleTop = true
+                  }
+              }
+          )
         }
         composable("history") {
-          HistoryScreen(viewModel = viewModel)
+          HistoryScreen(
+              viewModel = viewModel,
+              onOpenMatchDetails = { matchId ->
+                  navController.navigate("matchFinalization/$matchId") {
+                      launchSingleTop = true
+                  }
+              }
+          )
         }
         composable("settings") {
           SettingsScreen(viewModel = viewModel)
@@ -144,7 +188,8 @@ fun MainNavigationContainer() {
 @Composable
 fun CustomBottomNavigationBar(
   navController: NavController,
-  currentRoute: String
+  currentRoute: String,
+  isNavigationLocked: Boolean = false
 ) {
   val items = listOf(
     NavigationItem.Home,
@@ -178,11 +223,11 @@ fun CustomBottomNavigationBar(
       ) {
         items.forEach { item ->
           val isSelected = currentRoute == item.route
-          
+
           Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(16.dp))
-                .clickable {
+                .clickable(enabled = !isNavigationLocked) {
                   if (currentRoute != item.route) {
                     navController.navigate(item.route) {
                       popUpTo(navController.graph.startDestinationId) {
@@ -204,18 +249,18 @@ fun CustomBottomNavigationBar(
               Icon(
                 imageVector = item.icon,
                 contentDescription = item.title,
-                tint = if (isSelected) item.activeColor else Color.Gray,
+                tint = if (isSelected) item.activeColor else if (isNavigationLocked) Color.DarkGray else Color.Gray,
                 modifier = Modifier.size(24.dp)
               )
-              
+
               Spacer(modifier = Modifier.height(2.dp))
-              
+
               Text(
                 text = item.title,
                 style = MaterialTheme.typography.labelSmall.copy(
                   fontSize = 10.sp,
                   fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                  color = if (isSelected) Color.White else Color.Gray
+                  color = if (isSelected) Color.White else if (isNavigationLocked) Color.DarkGray else Color.Gray
                 )
               )
             }

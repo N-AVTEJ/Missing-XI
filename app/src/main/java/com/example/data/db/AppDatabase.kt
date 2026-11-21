@@ -11,7 +11,7 @@ import com.example.data.model.TossEntity
 import com.example.data.model.PlayerEntity
 import com.example.data.model.SessionEntity
 
-@Database(entities = [LineupEntity::class, TossEntity::class, PlayerEntity::class, SessionEntity::class], version = 8, exportSchema = false)
+@Database(entities = [LineupEntity::class, TossEntity::class, PlayerEntity::class, SessionEntity::class], version = 9, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun lineupDao(): LineupDao
     abstract fun tossDao(): TossDao
@@ -90,6 +90,26 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `tosses` ADD COLUMN `tossUuid` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `tosses` ADD COLUMN `matchId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `tosses` ADD COLUMN `attemptNumber` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `tosses` ADD COLUMN `selectedBy` TEXT NOT NULL DEFAULT 'USER'")
+                db.execSQL("ALTER TABLE `tosses` ADD COLUMN `status` TEXT NOT NULL DEFAULT 'COMPLETED'")
+                db.execSQL("UPDATE `tosses` SET `tossUuid` = 'legacy_toss_' || `id` WHERE `tossUuid` = ''")
+
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `matchId` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `matchStatus` TEXT NOT NULL DEFAULT 'TEAMS_GENERATED'")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `finalTeamsJson` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `completedAt` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `latestTossChoice` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `latestTossResult` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `latestTossWon` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE `sessions` SET `matchId` = 'legacy_match_' || `id` WHERE `matchId` = ''")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -97,7 +117,16 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "missingxi_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(
+                    MIGRATION_1_2,
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7,
+                    MIGRATION_7_8,
+                    MIGRATION_8_9
+                )
                 .fallbackToDestructiveMigration(dropAllTables = false)
                 .build()
                 INSTANCE = instance

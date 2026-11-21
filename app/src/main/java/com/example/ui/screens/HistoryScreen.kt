@@ -28,11 +28,18 @@ import com.example.ui.viewmodel.AppViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 
+import com.example.util.MatchStatus
+import com.example.util.MatchTossEngine
+
 @Composable
-fun HistoryScreen(viewModel: AppViewModel) {
+fun HistoryScreen(
+    viewModel: AppViewModel,
+    onOpenMatchDetails: (String) -> Unit = {}
+) {
     val savedLineups by viewModel.savedLineups.collectAsState()
     val savedTosses by viewModel.savedTosses.collectAsState()
     val sessionHistory by viewModel.sessionHistory.collectAsState()
+    val savedSessions by viewModel.savedSessions.collectAsState()
 
     var activeTab by remember { mutableStateOf("Shuffles") } // "Shuffles", "Lineups" or "Tosses"
 
@@ -102,7 +109,7 @@ fun HistoryScreen(viewModel: AppViewModel) {
 
             // Content Lists
             if (activeTab == "Shuffles") {
-                if (sessionHistory.isEmpty()) {
+                if (sessionHistory.isEmpty() && savedSessions.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -123,25 +130,43 @@ fun HistoryScreen(viewModel: AppViewModel) {
                     }
                 } else {
                     Column(modifier = Modifier.weight(1f)) {
-                        Button(
-                            onClick = { viewModel.clearSessionHistory() },
-                            colors = ButtonDefaults.buttonColors(containerColor = CrimsonHot.copy(alpha = 0.15f)),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, CrimsonHot.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                                .testTag("clear_session_history_button"),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("Clear Memory Session History", color = CrimsonHot, fontWeight = FontWeight.Bold)
+                        if (sessionHistory.isNotEmpty()) {
+                            Button(
+                                onClick = { viewModel.clearSessionHistory() },
+                                colors = ButtonDefaults.buttonColors(containerColor = CrimsonHot.copy(alpha = 0.15f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.dp, CrimsonHot.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                    .testTag("clear_session_history_button"),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Clear Memory Session History", color = CrimsonHot, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Build unified saved-match list (SQLite persisted matches + any unsaved in-memory items)
+                        val inMemoryMatchIds = remember(sessionHistory) {
+                            sessionHistory.mapNotNull { it.matchId.takeIf { id -> id.isNotBlank() } }.toSet()
+                        }
+                        val persistedOnlySessions = remember(savedSessions, inMemoryMatchIds) {
+                            savedSessions.filter { it.matchId.isNotBlank() && it.matchId !in inMemoryMatchIds }
+                        }
+
                         LazyColumn(
                             modifier = Modifier.fillMaxSize().testTag("shuffles_session_history_list"),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            items(sessionHistory, key = { it.shuffleNumber }) { session ->
+                            items(sessionHistory, key = { "mem_${it.shuffleNumber}" }) { session ->
                                 GlassyCard(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(enabled = session.matchId.isNotBlank()) {
+                                            if (session.matchId.isNotBlank()) {
+                                                onOpenMatchDetails(session.matchId)
+                                            }
+                                        }
+                                        .testTag("history_session_card_${session.shuffleNumber}"),
                                     cornerRadius = 20
                                 ) {
                                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -165,12 +190,23 @@ fun HistoryScreen(viewModel: AppViewModel) {
                                                         fontSize = 11.sp
                                                     )
                                                 }
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    text = "${session.players.size} Players",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = Color.LightGray
-                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(
+                                                            if (session.matchStatus == MatchStatus.COMPLETED) NeonGreen.copy(alpha = 0.18f)
+                                                            else GoldStar.copy(alpha = 0.15f)
+                                                        )
+                                                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                                                ) {
+                                                    Text(
+                                                        text = session.matchStatus.displayLabel.uppercase(),
+                                                        color = if (session.matchStatus == MatchStatus.COMPLETED) NeonGreen else GoldStar,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 9.sp
+                                                    )
+                                                }
                                             }
 
                                             Text(
@@ -334,9 +370,169 @@ fun HistoryScreen(viewModel: AppViewModel) {
                                                 }
                                             }
                                         }
+                                        if (session.latestTossResult.isNotBlank()) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Casino,
+                                                    contentDescription = "Toss Result",
+                                                    tint = GoldStar,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    text = "Toss: ${session.latestTossChoice} → ${session.latestTossResult} (${if (session.latestTossWon) "WON" else "LOST"})",
+                                                    color = if (session.latestTossWon) NeonGreen else CrimsonHot,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+
+                                        if (session.matchId.isNotBlank()) {
+                                            Text(
+                                                text = "Tap to view saved match & toss summary →",
+                                                color = NeonBlue,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
                                     }
                                 }
                             }
+
+                            // Persisted SQLite matches (survive app restarts)
+                            items(persistedOnlySessions, key = { "db_${it.id}" }) { dbSession ->
+                                val status = MatchStatus.fromString(dbSession.matchStatus)
+                                val (parsedTeams, parsedJoker) = remember(dbSession.finalTeamsJson) {
+                                    MatchTossEngine.parseTeamsJson(dbSession.finalTeamsJson)
+                                }
+                                GlassyCard(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onOpenMatchDetails(dbSession.matchId) }
+                                        .testTag("saved_match_card_${dbSession.id}"),
+                                    cornerRadius = 20
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(
+                                                            if (status == MatchStatus.COMPLETED) NeonGreen.copy(alpha = 0.16f)
+                                                            else IndigoAccent.copy(alpha = 0.16f)
+                                                        )
+                                                        .border(
+                                                            1.dp,
+                                                            if (status == MatchStatus.COMPLETED) NeonGreen.copy(alpha = 0.35f)
+                                                            else IndigoAccent.copy(alpha = 0.35f),
+                                                            RoundedCornerShape(8.dp)
+                                                        )
+                                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                ) {
+                                                    Text(
+                                                        text = status.displayLabel.uppercase(),
+                                                        color = if (status == MatchStatus.COMPLETED) NeonGreen else IndigoAccent,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 10.sp
+                                                    )
+                                                }
+                                                if (dbSession.wasManuallyEdited) {
+                                                    Text(
+                                                        text = "EDITED",
+                                                        color = NeonBlue,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 9.sp
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = dateFormatter.format(Date(dbSession.timestamp)),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.Gray
+                                            )
+                                        }
+
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                                        if (parsedTeams.isNotEmpty()) {
+                                            parsedTeams.forEach { team ->
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color.White.copy(alpha = 0.03f))
+                                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "${team.name}: ",
+                                                        color = NeonGreen,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.sp
+                                                    )
+                                                    Text(
+                                                        text = team.players.joinToString(", "),
+                                                        color = Color.White,
+                                                        fontSize = 12.sp,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            Text(
+                                                text = "${dbSession.teamCount} Teams • Profile: ${dbSession.fairnessProfile}",
+                                                color = Color.LightGray,
+                                                fontSize = 12.sp
+                                            )
+                                        }
+
+                                        if (!parsedJoker.isNullOrBlank()) {
+                                            Text(
+                                                text = "Joker: $parsedJoker",
+                                                color = FuchsiaAccent,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = if (dbSession.latestTossResult.isNotBlank()) {
+                                                    "Toss: ${dbSession.latestTossResult} (${if (dbSession.latestTossWon) "WON" else "LOST"})"
+                                                } else {
+                                                    "No toss recorded"
+                                                },
+                                                color = if (dbSession.latestTossResult.isNotBlank()) GoldStar else Color.Gray,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = "View Details →",
+                                                color = NeonBlue,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             item {
                                 Spacer(modifier = Modifier.height(100.dp))
                             }

@@ -2,6 +2,7 @@ package com.example.data.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import java.util.UUID
 
 @Entity(tableName = "sessions")
 data class SessionEntity(
@@ -23,5 +24,12 @@ data class SessionEntity(
     val fixedGroupsJson: String = "[]",
     val excludedPlayerIdsJson: String = "[]",
     val wasManuallyEdited: Boolean = false,
-    val originalArrangementJson: String = ""
+    val originalArrangementJson: String = "",
+    val matchId: String = UUID.randomUUID().toString(),
+    val matchStatus: String = "TEAMS_GENERATED",
+    val finalTeamsJson: String = "",
+    val completedAt: Long = 0L,
+    val latestTossChoice: String = "",
+    val latestTossResult: String = "",
+    val latestTossWon: Boolean = false
 )

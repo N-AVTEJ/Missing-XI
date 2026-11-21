@@ -25,12 +25,20 @@ import com.example.util.LockedPlayerGroup
 import com.example.util.ManualEditState
 import com.example.util.ManualTeamEditManager
 import com.example.util.MatchConstraints
+import com.example.util.MatchStatus
+import com.example.util.MatchSummaryData
+import com.example.util.MatchTossCoordinator
+import com.example.util.MatchTossEngine
+import com.example.util.MatchTossUiState
 import com.example.util.Player
 import com.example.util.PlayerConstraintValidator
 import com.example.util.PlayerMatchConstraint
 import com.example.util.TeamArrangement
 import com.example.util.TeammatePairTracker
+import com.example.util.TossChoice
+import com.example.util.TossStatus
 import org.json.JSONArray
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -66,6 +74,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val savedTosses: StateFlow<List<TossEntity>> = repository.allTosses
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val savedSessions: StateFlow<List<com.example.data.model.SessionEntity>> = repository.allSessions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val allActivePlayers = repository.allActivePlayers
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -73,6 +84,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val latestSession = MutableStateFlow<com.example.data.model.SessionEntity?>(null)
+
+    private val matchTossCoordinator = MatchTossCoordinator(repository)
+    val currentMatchId: StateFlow<String?> = matchTossCoordinator.currentMatchId
+    val currentMatchStatus: StateFlow<MatchStatus> = matchTossCoordinator.currentMatchStatus
+    val matchTossUiState: StateFlow<MatchTossUiState> = matchTossCoordinator.tossUiState
+    val reopenedMatchSummary: StateFlow<MatchSummaryData?> = matchTossCoordinator.reopenedMatchSummary
+    private var activeCoinFlipJob: Job? = null
 
     init {
         loadLatestSession()
@@ -405,7 +423,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val fixedGroupSummaries: List<String> = emptyList(),
         val excludedPlayerNames: List<String> = emptyList(),
         val wasManuallyEdited: Boolean = false,
-        val originalArrangementSummary: String = ""
+        val originalArrangementSummary: String = "",
+        val matchId: String = "",
+        val matchStatus: MatchStatus = MatchStatus.TEAMS_GENERATED,
+        val latestTossChoice: String = "",
+        val latestTossResult: String = "",
+        val latestTossWon: Boolean = false
     )
 
     // Match-Level Fairness Profile State
@@ -1197,7 +1220,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val preShuffleCycleJokers: List<String>,
         val dbSessionTimestamp: Long,
         val dbSessionId: Int = 0,
-        val originalArrangementJson: String = ""
+        val originalArrangementJson: String = "",
+        val matchId: String = java.util.UUID.randomUUID().toString()
     )
 
     private var activeShuffleBaseline: ActiveShuffleBaseline? = null
@@ -1374,7 +1398,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         return result
     }
 
-    fun confirmManualEdits(): Boolean {
+    fun confirmManualEdits(onConfirmed: ((String) -> Unit)? = null): Boolean {
         val manager = manualEditManager ?: return false
         val confirmed = manager.buildConfirmedResult()
         if (confirmed == null) {
@@ -1428,6 +1452,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             "${t.name}: ${t.players.joinToString(", ")}"
         }
         val participatingPlayerNames = (finalTeams.flatMap { it.players } + (finalJoker?.let { listOf(it) } ?: emptyList())).distinct()
+        val matchId = baseline?.matchId ?: currentMatchId.value ?: java.util.UUID.randomUUID().toString()
+        val finalTeamsJson = MatchTossEngine.serializeTeamsJson(finalTeams, finalJoker)
+
         sessionHistory.value = sessionHistory.value.map { session ->
             if (session.shuffleNumber == targetShuffleNum) {
                 session.copy(
@@ -1437,7 +1464,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     qualityGateOutcome = qualityOutcome,
                     fairnessScore = finalFairness.fairnessScore,
                     wasManuallyEdited = confirmed.wasModified,
-                    originalArrangementSummary = if (confirmed.wasModified) originalSummary else ""
+                    originalArrangementSummary = if (confirmed.wasModified) originalSummary else "",
+                    matchId = matchId,
+                    matchStatus = MatchStatus.TEAMS_CONFIRMED
                 )
             } else {
                 session
@@ -1459,8 +1488,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }).toString()
                 val excludedIdsJson = org.json.JSONArray(capturedBaseline.originalExcludedPlayers.map { it.id }).toString()
 
+                val existingDb = repository.getSessionByMatchId(matchId)
+                    ?: if (capturedBaseline.dbSessionId > 0) repository.getSessionById(capturedBaseline.dbSessionId) else null
+
                 val updatedEntity = com.example.data.model.SessionEntity(
-                    id = capturedBaseline.dbSessionId,
+                    id = existingDb?.id ?: capturedBaseline.dbSessionId,
                     playerIdsJson = jsonArray.toString(),
                     teamCount = capturedBaseline.numTeams,
                     timestamp = capturedBaseline.dbSessionTimestamp,
@@ -1478,15 +1510,33 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     fixedGroupsJson = groupsJson,
                     excludedPlayerIdsJson = excludedIdsJson,
                     wasManuallyEdited = confirmed.wasModified,
-                    originalArrangementJson = if (confirmed.wasModified) capturedBaseline.originalArrangementJson else ""
+                    originalArrangementJson = if (confirmed.wasModified) capturedBaseline.originalArrangementJson else "",
+                    matchId = matchId,
+                    matchStatus = MatchStatus.TEAMS_CONFIRMED.name,
+                    finalTeamsJson = finalTeamsJson,
+                    completedAt = existingDb?.completedAt ?: 0L,
+                    latestTossChoice = existingDb?.latestTossChoice ?: "",
+                    latestTossResult = existingDb?.latestTossResult ?: "",
+                    latestTossWon = existingDb?.latestTossWon ?: false
                 )
-                if (capturedBaseline.dbSessionId > 0) {
+                val resolvedDbId = if (updatedEntity.id > 0) {
                     repository.updateSession(updatedEntity)
+                    updatedEntity.id
                 } else {
-                    val insertedId = repository.insertSession(updatedEntity)
-                    activeShuffleBaseline = activeShuffleBaseline?.copy(dbSessionId = insertedId.toInt())
+                    val insertedId = repository.insertSession(updatedEntity).toInt()
+                    activeShuffleBaseline = activeShuffleBaseline?.copy(dbSessionId = insertedId)
+                    insertedId
                 }
+                val confirmRes = matchTossCoordinator.confirmTeamsForToss(
+                    matchId = matchId,
+                    dbSessionId = resolvedDbId,
+                    teams = finalTeams,
+                    joker = finalJoker
+                )
                 loadLatestSession()
+                if (confirmRes.isSuccess) {
+                    onConfirmed?.invoke(matchId)
+                }
 
                 // Refresh player chemistry stats (favorite teammate/opponent & counts) without double-counting matchesPlayed
                 val currentTime = System.currentTimeMillis()
@@ -1551,6 +1601,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         val shuffleNum = nextShuffleNumber++
         currentShuffleNumber.value = shuffleNum
+        val newMatchId = java.util.UUID.randomUUID().toString()
+        val serializedFinalTeamsJson = MatchTossEngine.serializeTeamsJson(chosen.teams, chosen.joker)
+        matchTossCoordinator.onTeamsGenerated(newMatchId)
 
         activeShuffleBaseline = ActiveShuffleBaseline(
             shuffleNumber = shuffleNum,
@@ -1570,7 +1623,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             preShuffleCycleJokers = preShuffleCycle,
             dbSessionTimestamp = sessionTimestamp,
             dbSessionId = 0,
-            originalArrangementJson = originalArrangementJson
+            originalArrangementJson = originalArrangementJson,
+            matchId = newMatchId
         )
 
         val qualityOutcome = if (chosen.qualityResult.passed) "Passed" else "Best Available"
@@ -1599,7 +1653,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             targetScore = settingsSnapshot.minimumOverallFairnessScore.toInt(),
             lockedPlayerNames = lockedPlayerNames,
             fixedGroupSummaries = groupSummaries,
-            excludedPlayerNames = excludedNames
+            excludedPlayerNames = excludedNames,
+            matchId = newMatchId,
+            matchStatus = MatchStatus.TEAMS_GENERATED
         )
         sessionHistory.value = listOf(session) + sessionHistory.value
 
@@ -1655,7 +1711,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 fixedGroupsJson = groupsJson,
                 excludedPlayerIdsJson = excludedIdsJson,
                 wasManuallyEdited = false,
-                originalArrangementJson = originalArrangementJson
+                originalArrangementJson = originalArrangementJson,
+                matchId = newMatchId,
+                matchStatus = MatchStatus.TEAMS_GENERATED.name,
+                finalTeamsJson = serializedFinalTeamsJson
             )
             val insertedRowId = repository.insertSession(dbSession)
             if (activeShuffleBaseline?.shuffleNumber == shuffleNum) {
@@ -1866,38 +1925,162 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun triggerToss() {
-        if (isCoinFlipping.value) return
+    /**
+     * Confirms the currently generated (or already-edited) teams and transitions the match
+     * to TEAMS_CONFIRMED before navigating to the Coin Toss screen.
+     */
+    fun confirmGeneratedTeams(onReadyForToss: (String) -> Unit = {}) {
+        val teams = generatedTeams.value
+        if (teams.isEmpty()) return
+        val baseline = activeShuffleBaseline
+        val matchId = baseline?.matchId ?: currentMatchId.value ?: java.util.UUID.randomUUID().toString()
+        val dbSessionId = baseline?.dbSessionId ?: 0
+        val joker = jokerPlayer.value
 
         viewModelScope.launch {
+            val result = matchTossCoordinator.confirmTeamsForToss(
+                matchId = matchId,
+                dbSessionId = dbSessionId,
+                teams = teams,
+                joker = joker
+            )
+            if (result.isSuccess) {
+                val updatedStatus = matchTossCoordinator.currentMatchStatus.value
+                sessionHistory.value = sessionHistory.value.map { session ->
+                    if (session.matchId == matchId || (baseline != null && session.shuffleNumber == baseline.shuffleNumber)) {
+                        session.copy(matchId = matchId, matchStatus = updatedStatus)
+                    } else session
+                }
+                loadLatestSession()
+                onReadyForToss(matchId)
+            }
+        }
+    }
+
+    /**
+     * Confirms manual team edits, persists the edited arrangement, sets TEAMS_CONFIRMED,
+     * and invokes [onReadyForToss] to proceed directly into the Coin Toss flow.
+     */
+    fun confirmManualEditsAndProceed(onReadyForToss: (String) -> Unit = {}): Boolean {
+        return confirmManualEdits(onConfirmed = onReadyForToss)
+    }
+
+    fun syncTossScreen() {
+        viewModelScope.launch {
+            matchTossCoordinator.syncForTossScreen()
+        }
+    }
+
+    fun selectTossChoice(choice: TossChoice) {
+        matchTossCoordinator.selectChoice(choice)
+        selectedTossChoice.value = choice.displayName
+    }
+
+    fun clearTossError() {
+        matchTossCoordinator.clearError()
+    }
+
+    fun prepareFlipAgain() {
+        matchTossCoordinator.prepareFlipAgain()
+        tossResult.value = null
+        tossStatusMessage.value = "Choose Heads or Tails to flip again"
+    }
+
+    fun executeCoinFlip(
+        animationDurationMs: Long = MatchTossEngine.FLIP_ANIMATION_DURATION_MS
+    ) {
+        if (isCoinFlipping.value || matchTossUiState.value.tossStatus == TossStatus.IN_PROGRESS) return
+
+        activeCoinFlipJob = viewModelScope.launch {
             isCoinFlipping.value = true
             tossResult.value = null
             tossStatusMessage.value = "Flipping coin..."
 
-            // Simulate high-fidelity premium coin spinning delays
-            delay(1500)
-
-            val outcomes = listOf("Heads", "Tails")
-            val selected = selectedTossChoice.value
-            val outcome = outcomes.random()
-
-            val won = selected.equals(outcome, ignoreCase = true)
-            val newToss = TossEntity(
-                choice = selected,
-                result = outcome,
-                hasWon = won
-            )
-
-            repository.insertToss(newToss)
-
-            tossResult.value = outcome
-            tossStatusMessage.value = if (won) {
-                "Congratulations! You won the toss!"
-            } else {
-                "Oh, you lost the toss. Better luck next match!"
+            try {
+                val flipOutcome = matchTossCoordinator.executeCoinFlip(
+                    animationDurationMs = animationDurationMs
+                )
+                flipOutcome.onSuccess { completed ->
+                    tossResult.value = completed.result.displayName
+                    tossStatusMessage.value = if (completed.wonToss) {
+                        "YOU WON! Landed on ${completed.result.displayName}."
+                    } else {
+                        "YOU LOST. Landed on ${completed.result.displayName}."
+                    }
+                    if (!matchTossUiState.value.isStandaloneMode && completed.matchId.isNotBlank()) {
+                        sessionHistory.value = sessionHistory.value.map { session ->
+                            if (session.matchId == completed.matchId) {
+                                session.copy(
+                                    matchStatus = MatchStatus.TOSS_COMPLETED,
+                                    latestTossChoice = completed.userChoice.displayName,
+                                    latestTossResult = completed.result.displayName,
+                                    latestTossWon = completed.wonToss
+                                )
+                            } else session
+                        }
+                    }
+                }.onFailure { err ->
+                    tossStatusMessage.value = err.message ?: "Coin toss could not be completed."
+                }
+            } finally {
+                isCoinFlipping.value = false
             }
-            isCoinFlipping.value = false
         }
+    }
+
+    fun finalizeCurrentMatch(onFinalized: (String) -> Unit) {
+        if (isCoinFlipping.value) return
+        viewModelScope.launch {
+            val result = matchTossCoordinator.finalizeMatch()
+            result.onSuccess { summary ->
+                sessionHistory.value = sessionHistory.value.map { session ->
+                    if (session.matchId == summary.matchId) {
+                        session.copy(matchStatus = MatchStatus.COMPLETED)
+                    } else session
+                }
+                loadLatestSession()
+                onFinalized(summary.matchId)
+            }
+        }
+    }
+
+    fun loadMatchSummary(matchId: String) {
+        viewModelScope.launch {
+            val inMemoryMatch = sessionHistory.value.firstOrNull { it.matchId == matchId }
+            matchTossCoordinator.loadMatchSummary(
+                matchId = matchId,
+                fallbackTeams = inMemoryMatch?.teams ?: emptyList(),
+                fallbackJoker = inMemoryMatch?.joker
+            )
+        }
+    }
+
+    /**
+     * Resets active match draft state to start a fresh match without deleting any persisted
+     * SQLite matches, toss history, players, or fairness statistics.
+     */
+    fun startNewMatch() {
+        activeCoinFlipJob?.cancel()
+        activeCoinFlipJob = null
+        isCoinFlipping.value = false
+        tossResult.value = null
+        tossStatusMessage.value = "Choose Heads or Tails to start the toss"
+        manualEditManager = null
+        manualEditState.value = null
+        activeShuffleBaseline = null
+        generatedTeams.value = emptyList()
+        jokerPlayer.value = null
+        currentArrangementWasManuallyEdited.value = false
+        matchTossCoordinator.resetForNewMatch()
+    }
+
+    fun triggerToss() {
+        val currentChoice = matchTossUiState.value.selectedChoice
+            ?: TossChoice.fromString(selectedTossChoice.value)
+        if (currentChoice != null && matchTossUiState.value.selectedChoice == null) {
+            matchTossCoordinator.selectChoice(currentChoice)
+        }
+        executeCoinFlip()
     }
 
     fun clearAllTosses() {
