@@ -36,9 +36,11 @@ import com.example.ui.components.FrostedMeshBackground
 import com.example.ui.components.GlassyCard
 import com.example.ui.components.JokerCard
 import com.example.ui.components.JokerRotationSection
+import com.example.ui.components.ManualTeamEditorSection
 import com.example.ui.components.NeonButton
 import com.example.ui.components.PlayerConstraintDialog
 import com.example.ui.components.PlayerConstraintsCard
+import androidx.compose.material.icons.filled.Edit
 import com.example.ui.theme.CrimsonHot
 import com.example.ui.theme.FuchsiaAccent
 import com.example.ui.theme.GoldStar
@@ -94,6 +96,8 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
     val constraintValidationError by viewModel.constraintValidationError.collectAsState()
     val excludedPlayersList by viewModel.excludedPlayersList.collectAsState()
     val allActivePlayers by viewModel.allActivePlayers.collectAsState()
+    val manualEditState by viewModel.manualEditState.collectAsState()
+    val wasManuallyEdited by viewModel.currentArrangementWasManuallyEdited.collectAsState()
 
     var showGroupsDialog by remember { mutableStateOf(false) }
     var playerForConstraintDialog by remember { mutableStateOf<Player?>(null) }
@@ -1339,8 +1343,27 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                 }
             }
 
-            // Generated Teams List
-            if (generatedTeams.isNotEmpty()) {
+            // Manual Team Editing Mode OR Generated Teams List
+            val activeEditState = manualEditState
+            if (activeEditState != null) {
+                item(key = "manual_team_editor_item") {
+                    ManualTeamEditorSection(
+                        state = activeEditState,
+                        onPlayerTap = { viewModel.handlePlayerTapInEditMode(it) },
+                        onMovePlayer = { playerId, destTeamId ->
+                            viewModel.movePlayerInEditMode(playerId, destTeamId)
+                        },
+                        onUndo = { viewModel.undoManualEdit() },
+                        onRedo = { viewModel.redoManualEdit() },
+                        onResetChanges = { viewModel.resetManualEdits() },
+                        onToggleTemporaryImbalance = { viewModel.setAllowTemporaryImbalance(it) },
+                        onDismissError = { viewModel.dismissManualEditError() },
+                        onValidateForConfirm = { viewModel.validateManualEditForConfirmation() },
+                        onConfirmTeams = { viewModel.confirmManualEdits() },
+                        onCancelEdit = { viewModel.exitManualEditMode() }
+                    )
+                }
+            } else if (generatedTeams.isNotEmpty()) {
                 item {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1364,13 +1387,48 @@ fun TeamConfigScreen(viewModel: AppViewModel) {
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.sp
                             )
+                            if (wasManuallyEdited) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(NeonBlue.copy(alpha = 0.2f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "EDITED",
+                                        color = NeonBlue,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
 
-                        Text(
-                            text = "${generatedTeams.size} Teams Created",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.LightGray
-                        )
+                        OutlinedButton(
+                            onClick = { viewModel.enterManualEditMode() },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = NeonBlue),
+                            border = ButtonDefaults.outlinedButtonBorder(enabled = true).copy(
+                                brush = androidx.compose.ui.graphics.SolidColor(NeonBlue.copy(alpha = 0.6f))
+                            ),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("edit_teams_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit Teams",
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Edit Teams",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
 

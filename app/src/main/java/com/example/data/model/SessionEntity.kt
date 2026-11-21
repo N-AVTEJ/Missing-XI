@@ -21,5 +21,7 @@ data class SessionEntity(
     val qualityGateOutcome: String = "",
     val lockedPlayerIdsJson: String = "[]",
     val fixedGroupsJson: String = "[]",
-    val excludedPlayerIdsJson: String = "[]"
+    val excludedPlayerIdsJson: String = "[]",
+    val wasManuallyEdited: Boolean = false,
+    val originalArrangementJson: String = ""
 )

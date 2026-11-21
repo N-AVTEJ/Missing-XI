@@ -9,7 +9,10 @@ data class GeneratedTeam(
     val averageStrength: Double = 0.0,
     val maxPlayerRating: Int = 0,
     val minPlayerRating: Int = 0
-)
+) {
+    val teamId: String
+        get() = "team_$teamNumber"
+}
 
 data class TeamStrengthAnalysis(
     val totalStrength: Int = 0,

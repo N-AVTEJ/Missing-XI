@@ -238,6 +238,22 @@ fun HistoryScreen(viewModel: AppViewModel) {
                                                     fontSize = 10.sp
                                                 )
                                             }
+
+                                            if (session.wasManuallyEdited) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(NeonBlue.copy(alpha = 0.18f))
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Edited",
+                                                        color = NeonBlue,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 10.sp
+                                                    )
+                                                }
+                                            }
                                         }
 
                                         // Match Constraints Badges

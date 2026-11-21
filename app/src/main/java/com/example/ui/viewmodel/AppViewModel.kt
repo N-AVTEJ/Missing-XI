@@ -19,10 +19,16 @@ import com.example.util.GeneratedTeam
 import com.example.util.MatchFairnessConfig
 import com.example.util.MatchFairnessProfile
 import com.example.util.PairStatistics
+import com.example.util.ArrangementSignatureUtil
+import com.example.util.ArrangementValidationResult
+import com.example.util.LockedPlayerGroup
+import com.example.util.ManualEditState
+import com.example.util.ManualTeamEditManager
+import com.example.util.MatchConstraints
 import com.example.util.Player
 import com.example.util.PlayerConstraintValidator
 import com.example.util.PlayerMatchConstraint
-import com.example.util.LockedPlayerGroup
+import com.example.util.TeamArrangement
 import com.example.util.TeammatePairTracker
 import org.json.JSONArray
 import kotlinx.coroutines.delay
@@ -397,7 +403,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val targetScore: Int = 70,
         val lockedPlayerNames: List<String> = emptyList(),
         val fixedGroupSummaries: List<String> = emptyList(),
-        val excludedPlayerNames: List<String> = emptyList()
+        val excludedPlayerNames: List<String> = emptyList(),
+        val wasManuallyEdited: Boolean = false,
+        val originalArrangementSummary: String = ""
     )
 
     // Match-Level Fairness Profile State
@@ -602,12 +610,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val uniqueTeamsGenerated = MutableStateFlow(0)
 
     fun generateArrangementSignature(teams: List<GeneratedTeam>, joker: String?): String {
-        val sortedTeams = teams.map { team ->
-            team.players.map { it.trim() }.sorted().joinToString(",")
-        }.sorted()
-        val teamsStr = sortedTeams.joinToString(" | ")
-        val jokerStr = if (!joker.isNullOrBlank()) " [JOKER: ${joker.trim()}]" else ""
-        return "$teamsStr$jokerStr"
+        return ArrangementSignatureUtil.generateSignature(teams, joker)
     }
     
     private val jokerPrefs = application.getSharedPreferences("joker_rotation_prefs", Context.MODE_PRIVATE)
@@ -823,6 +826,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun shuffleTeams() {
         if (isGeneratingCandidates.value) return
+        if (manualEditState.value != null) {
+            exitManualEditMode()
+        }
         val numTeams = configNumberOfTeams.value.toIntOrNull() ?: 0
         val activePlayersMap = allActivePlayers.value.associateBy { it.displayName }
         val activePlayerObjects = buildPlayersList.value.mapIndexed { index, name ->
@@ -1173,6 +1179,344 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private data class ActiveShuffleBaseline(
+        val shuffleNumber: Int,
+        val activePlayerObjects: List<Player>,
+        val numTeams: Int,
+        val profile: MatchFairnessProfile,
+        val settingsSnapshot: FairnessSettings,
+        val originalTeams: List<GeneratedTeam>,
+        val originalJoker: String?,
+        val originalExcludedPlayers: List<Player>,
+        val originalLockedPlayerIds: List<String>,
+        val originalFixedGroups: List<LockedPlayerGroup>,
+        val constraintsSnapshot: Map<String, PlayerMatchConstraint>,
+        val preShuffleTeammatePairCounts: Map<String, Int>,
+        val preShuffleOpponentPairCounts: Map<String, Int>,
+        val preShuffleSignatures: Set<String>,
+        val preShuffleCycleJokers: List<String>,
+        val dbSessionTimestamp: Long,
+        val dbSessionId: Int = 0,
+        val originalArrangementJson: String = ""
+    )
+
+    private var activeShuffleBaseline: ActiveShuffleBaseline? = null
+    private var manualEditManager: ManualTeamEditManager? = null
+
+    val manualEditState = MutableStateFlow<ManualEditState?>(null)
+    val currentArrangementWasManuallyEdited = MutableStateFlow(false)
+
+    private fun serializeTeamsArrangementJson(teams: List<GeneratedTeam>, joker: String?): String {
+        val root = org.json.JSONObject()
+        val teamsArr = org.json.JSONArray()
+        teams.forEach { team ->
+            teamsArr.put(
+                org.json.JSONObject().apply {
+                    put("teamNumber", team.teamNumber)
+                    put("name", team.name)
+                    put("players", org.json.JSONArray(team.players))
+                    put("playerIds", org.json.JSONArray(team.playerIds))
+                }
+            )
+        }
+        root.put("teams", teamsArr)
+        if (!joker.isNullOrBlank()) {
+            root.put("joker", joker)
+        }
+        return root.toString()
+    }
+
+    fun enterManualEditMode() {
+        if (isGeneratingCandidates.value) return
+        val currentTeams = generatedTeams.value
+        if (currentTeams.isEmpty()) return
+
+        val baseline = activeShuffleBaseline
+        val activePlayers = baseline?.activePlayerObjects ?: run {
+            val activePlayersMap = allActivePlayers.value.associateBy { it.displayName }
+            buildPlayersList.value.mapIndexed { index, name ->
+                val cleanName = name.trim()
+                val dbPlayer = activePlayersMap[cleanName]
+                Player(
+                    id = dbPlayer?.id ?: "player_${index + 1}",
+                    name = cleanName,
+                    skillRating = dbPlayer?.skillRating ?: 5
+                )
+            }.filter { it.name.isNotBlank() }
+        }
+        val numTeams = baseline?.numTeams ?: currentTeams.size
+        val activeConstraints = baseline?.constraintsSnapshot ?: playerMatchConstraints.value
+        val activeGroups = baseline?.originalFixedGroups ?: lockedPlayerGroups.value
+        val activeSettings = baseline?.settingsSnapshot ?: appliedSettingsSnapshot.value
+        val activeExcluded = baseline?.originalExcludedPlayers ?: excludedPlayersList.value
+        val currentJoker = jokerPlayer.value
+        val jokerId = currentJoker?.let { jName ->
+            activePlayers.firstOrNull { it.name.equals(jName.trim(), ignoreCase = true) }?.id
+        }
+
+        val initialArrangement = TeamArrangement(
+            teams = currentTeams,
+            joker = currentJoker,
+            jokerId = jokerId,
+            excludedPlayers = activeExcluded,
+            signature = ArrangementSignatureUtil.generateSignature(currentTeams, currentJoker)
+        )
+        val matchConstraints = MatchConstraints(
+            allPlayers = activePlayers,
+            numTeams = numTeams,
+            playerConstraints = activeConstraints,
+            fixedGroups = activeGroups,
+            fairnessSettings = activeSettings,
+            allowTemporaryImbalance = false
+        )
+
+        val playerJokerCountsMap = allActivePlayers.value.associate { it.displayName to it.matchesAsJoker }
+
+        val manager = ManualTeamEditManager(
+            initialArrangement = initialArrangement,
+            baseConstraints = matchConstraints,
+            baselineTeammatePairCounts = baseline?.preShuffleTeammatePairCounts ?: emptyMap(),
+            baselineOpponentPairCounts = baseline?.preShuffleOpponentPairCounts ?: emptyMap(),
+            baselinePreviousSignatures = baseline?.preShuffleSignatures ?: emptySet(),
+            baselineCycleJokers = baseline?.preShuffleCycleJokers ?: emptyList(),
+            playerJokerCounts = playerJokerCountsMap
+        )
+        manualEditManager = manager
+        manualEditState.value = manager.getState()
+    }
+
+    fun exitManualEditMode() {
+        manualEditManager = null
+        manualEditState.value = null
+    }
+
+    fun selectPlayerForManualEdit(playerId: String?) {
+        val manager = manualEditManager ?: return
+        manager.selectPlayer(playerId)
+        manualEditState.value = manager.getState()
+    }
+
+    fun handlePlayerTapInEditMode(playerId: String) {
+        val manager = manualEditManager ?: return
+        val state = manager.getState()
+        val currentSelected = state.selectedPlayerId
+
+        if (currentSelected == null) {
+            manager.selectPlayer(playerId)
+            manualEditState.value = manager.getState()
+            return
+        }
+
+        if (currentSelected == playerId) {
+            manager.selectPlayer(null)
+            manualEditState.value = manager.getState()
+            return
+        }
+
+        val selectedTeamIndex = state.currentArrangement.teams.indexOfFirst { currentSelected in it.playerIds }
+        val tappedTeamIndex = state.currentArrangement.teams.indexOfFirst { playerId in it.playerIds }
+
+        if (selectedTeamIndex != -1 && tappedTeamIndex != -1 && selectedTeamIndex != tappedTeamIndex) {
+            manager.swapPlayers(currentSelected, playerId)
+            manualEditState.value = manager.getState()
+        } else {
+            manager.selectPlayer(playerId)
+            manualEditState.value = manager.getState()
+        }
+    }
+
+    fun movePlayerInEditMode(playerId: String, destinationTeamId: String) {
+        val manager = manualEditManager ?: return
+        manager.movePlayer(playerId, destinationTeamId)
+        manualEditState.value = manager.getState()
+    }
+
+    fun swapPlayersInEditMode(playerIdA: String, playerIdB: String) {
+        val manager = manualEditManager ?: return
+        manager.swapPlayers(playerIdA, playerIdB)
+        manualEditState.value = manager.getState()
+    }
+
+    fun undoManualEdit() {
+        val manager = manualEditManager ?: return
+        manager.undo()
+        manualEditState.value = manager.getState()
+    }
+
+    fun redoManualEdit() {
+        val manager = manualEditManager ?: return
+        manager.redo()
+        manualEditState.value = manager.getState()
+    }
+
+    fun resetManualEdits() {
+        val manager = manualEditManager ?: return
+        manager.resetChanges()
+        manualEditState.value = manager.getState()
+    }
+
+    fun setAllowTemporaryImbalance(allow: Boolean) {
+        val manager = manualEditManager ?: return
+        manager.setAllowTemporaryImbalance(allow)
+        manualEditState.value = manager.getState()
+    }
+
+    fun dismissManualEditError() {
+        val manager = manualEditManager ?: return
+        manager.clearLastError()
+        manualEditState.value = manager.getState()
+    }
+
+    fun validateManualEditForConfirmation(): ArrangementValidationResult? {
+        val manager = manualEditManager ?: return null
+        val result = manager.validateForConfirmation()
+        manualEditState.value = manager.getState()
+        return result
+    }
+
+    fun confirmManualEdits(): Boolean {
+        val manager = manualEditManager ?: return false
+        val confirmed = manager.buildConfirmedResult()
+        if (confirmed == null) {
+            manualEditState.value = manager.getState()
+            return false
+        }
+
+        val baseline = activeShuffleBaseline
+        val finalTeams = confirmed.finalArrangement.teams
+        val finalJoker = confirmed.finalArrangement.joker
+        val finalFairness = confirmed.finalFairness
+        val finalSig = confirmed.finalArrangement.signature
+        val qualityOutcome = if (finalFairness.qualityResult.passed) "Passed" else "Best Available"
+
+        // Apply final arrangement & fairness to live state
+        generatedTeams.value = finalTeams
+        jokerPlayer.value = finalJoker
+        candidatePairAnalysis.value = finalFairness.pairAnalysis
+        candidateOpponentAnalysis.value = finalFairness.opponentAnalysis
+        currentStrengthAnalysis.value = finalFairness.strengthAnalysis
+        candidateFairnessEvaluation.value = finalFairness.evaluation
+        candidateQualityResult.value = finalFairness.qualityResult
+        currentFairnessScore.value = finalFairness.fairnessScore
+        currentFairnessRating.value = finalFairness.fairnessRating
+        currentArrangementWasManuallyEdited.value = confirmed.wasModified
+
+        // Recompute pair counts strictly from pre-shuffle baseline + final edited teams (never double-counted)
+        val finalTeamsPlayerIds = finalTeams.map { it.playerIds }
+        val baseTeammateCounts = baseline?.preShuffleTeammatePairCounts ?: emptyMap()
+        val baseOpponentCounts = baseline?.preShuffleOpponentPairCounts ?: emptyMap()
+        val updatedTeammateCounts = com.example.util.TeammatePairTracker.updateTeammatePairCounts(
+            baseTeammateCounts,
+            finalTeamsPlayerIds
+        )
+        val updatedOpponentCounts = com.example.util.OpponentPairTracker.updateOpponentHistory(
+            baseOpponentCounts,
+            finalTeamsPlayerIds
+        )
+        teammatePairCounts.value = updatedTeammateCounts
+        opponentPairCounts.value = updatedOpponentCounts
+
+        // Update unique signatures from pre-shuffle baseline without falsely incrementing on duplicates
+        val baseSigs = baseline?.preShuffleSignatures ?: emptySet()
+        val updatedSigs = baseSigs + finalSig
+        generatedSignaturesSet.value = updatedSigs
+        uniqueTeamsGenerated.value = updatedSigs.size
+
+        // Replace single ShuffleSession entry in memory history (never record two separate matches)
+        val targetShuffleNum = baseline?.shuffleNumber ?: currentShuffleNumber.value
+        val originalSummary = confirmed.originalArrangement.teams.joinToString(" | ") { t ->
+            "${t.name}: ${t.players.joinToString(", ")}"
+        }
+        val participatingPlayerNames = (finalTeams.flatMap { it.players } + (finalJoker?.let { listOf(it) } ?: emptyList())).distinct()
+        sessionHistory.value = sessionHistory.value.map { session ->
+            if (session.shuffleNumber == targetShuffleNum) {
+                session.copy(
+                    teams = finalTeams,
+                    players = participatingPlayerNames,
+                    joker = finalJoker,
+                    qualityGateOutcome = qualityOutcome,
+                    fairnessScore = finalFairness.fairnessScore,
+                    wasManuallyEdited = confirmed.wasModified,
+                    originalArrangementSummary = if (confirmed.wasModified) originalSummary else ""
+                )
+            } else {
+                session
+            }
+        }
+
+        // Persist updated single session row & refreshed chemistry stats to SQLite
+        if (baseline != null) {
+            val capturedBaseline = baseline
+            viewModelScope.launch {
+                val jsonArray = org.json.JSONArray(participatingPlayerNames)
+                val lockedIdsJson = org.json.JSONArray(capturedBaseline.originalLockedPlayerIds).toString()
+                val groupsJson = org.json.JSONArray(capturedBaseline.originalFixedGroups.map { g ->
+                    org.json.JSONObject().apply {
+                        put("id", g.id)
+                        put("name", g.name)
+                        put("playerIds", org.json.JSONArray(g.playerIds))
+                    }.toString()
+                }).toString()
+                val excludedIdsJson = org.json.JSONArray(capturedBaseline.originalExcludedPlayers.map { it.id }).toString()
+
+                val updatedEntity = com.example.data.model.SessionEntity(
+                    id = capturedBaseline.dbSessionId,
+                    playerIdsJson = jsonArray.toString(),
+                    teamCount = capturedBaseline.numTeams,
+                    timestamp = capturedBaseline.dbSessionTimestamp,
+                    overallFairnessScore = finalFairness.evaluation.overallScore,
+                    fairnessRating = finalFairness.fairnessRating,
+                    teammateVarietyScore = finalFairness.evaluation.teammateScore,
+                    opponentVarietyScore = finalFairness.evaluation.opponentScore,
+                    teamStrengthScore = finalFairness.evaluation.strengthScore,
+                    jokerFairnessScore = finalFairness.evaluation.jokerScore,
+                    fairnessProfile = capturedBaseline.profile.displayName,
+                    settingsSnapshotJson = capturedBaseline.settingsSnapshot.toSummary(),
+                    fairnessThresholdUsed = capturedBaseline.settingsSnapshot.minimumOverallFairnessScore,
+                    qualityGateOutcome = qualityOutcome,
+                    lockedPlayerIdsJson = lockedIdsJson,
+                    fixedGroupsJson = groupsJson,
+                    excludedPlayerIdsJson = excludedIdsJson,
+                    wasManuallyEdited = confirmed.wasModified,
+                    originalArrangementJson = if (confirmed.wasModified) capturedBaseline.originalArrangementJson else ""
+                )
+                if (capturedBaseline.dbSessionId > 0) {
+                    repository.updateSession(updatedEntity)
+                } else {
+                    val insertedId = repository.insertSession(updatedEntity)
+                    activeShuffleBaseline = activeShuffleBaseline?.copy(dbSessionId = insertedId.toInt())
+                }
+                loadLatestSession()
+
+                // Refresh player chemistry stats (favorite teammate/opponent & counts) without double-counting matchesPlayed
+                val currentTime = System.currentTimeMillis()
+                participatingPlayerNames.forEach { playerName ->
+                    val existingPlayer = repository.getPlayerByName(playerName)
+                    if (existingPlayer != null) {
+                        val favTeammate = com.example.util.PlayerChemistryEngine.getFavoriteTeammate(playerName, updatedTeammateCounts)
+                        val favOpponent = com.example.util.PlayerChemistryEngine.getFavoriteOpponent(playerName, updatedOpponentCounts)
+                        val totalTeammatesCount = com.example.util.PlayerChemistryEngine.getTotalTeammatesCount(playerName, updatedTeammateCounts)
+                        val totalOpponentsCount = com.example.util.PlayerChemistryEngine.getTotalOpponentsCount(playerName, updatedOpponentCounts)
+
+                        repository.updatePlayer(
+                            existingPlayer.copy(
+                                totalTeammates = totalTeammatesCount,
+                                totalOpponents = totalOpponentsCount,
+                                favoriteTeammateId = favTeammate?.idOrName,
+                                favoriteOpponentId = favOpponent?.idOrName,
+                                updatedAt = currentTime
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        manualEditManager = null
+        manualEditState.value = null
+        return true
+    }
+
     private fun applyCandidateToState(
         chosen: GeneratedCandidate, 
         activePlayerObjects: List<Player>, 
@@ -1181,6 +1525,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         profile: MatchFairnessProfile,
         settingsSnapshot: FairnessSettings
     ) {
+        // Capture pre-shuffle baseline before updating history & pair counts so manual edits
+        // evaluate read-only against true pre-match history and replace (never duplicate) this match.
+        val preShuffleTeammates = teammatePairCounts.value
+        val preShuffleOpponents = opponentPairCounts.value
+        val preShuffleSigs = generatedSignaturesSet.value.toSet()
+        val preShuffleCycle = currentCycleJokers.value.toList()
+        val constraintsSnapshot = playerMatchConstraints.value.toMap()
+        val sessionTimestamp = System.currentTimeMillis()
+        val originalArrangementJson = serializeTeamsArrangementJson(chosen.teams, chosen.joker)
+
         appliedMatchProfile.value = profile
         appliedSettingsSnapshot.value = settingsSnapshot
 
@@ -1190,12 +1544,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         saveJokerHistory()
 
         generatedTeams.value = chosen.teams
+        currentArrangementWasManuallyEdited.value = false
         existingSigs.add(chosen.signature)
         generatedSignaturesSet.value = existingSigs
         uniqueTeamsGenerated.value = existingSigs.size
 
         val shuffleNum = nextShuffleNumber++
         currentShuffleNumber.value = shuffleNum
+
+        activeShuffleBaseline = ActiveShuffleBaseline(
+            shuffleNumber = shuffleNum,
+            activePlayerObjects = activePlayerObjects,
+            numTeams = numTeams,
+            profile = profile,
+            settingsSnapshot = settingsSnapshot,
+            originalTeams = chosen.teams,
+            originalJoker = chosen.joker,
+            originalExcludedPlayers = chosen.excludedPlayers,
+            originalLockedPlayerIds = chosen.lockedPlayerIds,
+            originalFixedGroups = chosen.fixedGroups,
+            constraintsSnapshot = constraintsSnapshot,
+            preShuffleTeammatePairCounts = preShuffleTeammates,
+            preShuffleOpponentPairCounts = preShuffleOpponents,
+            preShuffleSignatures = preShuffleSigs,
+            preShuffleCycleJokers = preShuffleCycle,
+            dbSessionTimestamp = sessionTimestamp,
+            dbSessionId = 0,
+            originalArrangementJson = originalArrangementJson
+        )
 
         val qualityOutcome = if (chosen.qualityResult.passed) "Passed" else "Best Available"
 
@@ -1213,7 +1589,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
         val session = ShuffleSession(
             shuffleNumber = shuffleNum,
-            timestamp = System.currentTimeMillis(),
+            timestamp = sessionTimestamp,
             teams = chosen.teams,
             players = participatingPlayerNames,
             joker = chosen.joker,
@@ -1264,7 +1640,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val dbSession = com.example.data.model.SessionEntity(
                 playerIdsJson = jsonArray.toString(),
                 teamCount = numTeams,
-                timestamp = System.currentTimeMillis(),
+                timestamp = sessionTimestamp,
                 overallFairnessScore = chosen.fairnessEvaluation.overallScore,
                 fairnessRating = chosen.fairnessRating,
                 teammateVarietyScore = chosen.fairnessEvaluation.teammateScore,
@@ -1277,9 +1653,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 qualityGateOutcome = qualityOutcome,
                 lockedPlayerIdsJson = lockedIdsJson,
                 fixedGroupsJson = groupsJson,
-                excludedPlayerIdsJson = excludedIdsJson
+                excludedPlayerIdsJson = excludedIdsJson,
+                wasManuallyEdited = false,
+                originalArrangementJson = originalArrangementJson
             )
-            repository.insertSession(dbSession)
+            val insertedRowId = repository.insertSession(dbSession)
+            if (activeShuffleBaseline?.shuffleNumber == shuffleNum) {
+                activeShuffleBaseline = activeShuffleBaseline?.copy(dbSessionId = insertedRowId.toInt())
+            }
             loadLatestSession() // Update latest session state
 
             val currentTime = System.currentTimeMillis()

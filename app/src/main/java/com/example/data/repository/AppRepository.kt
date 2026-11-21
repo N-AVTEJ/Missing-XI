@@ -59,7 +59,11 @@ class AppRepository(
         return sessionDao.getLatestSession()
     }
 
-    suspend fun insertSession(session: SessionEntity) {
-        sessionDao.insertSession(session)
+    suspend fun insertSession(session: SessionEntity): Long {
+        return sessionDao.insertSession(session)
+    }
+
+    suspend fun updateSession(session: SessionEntity) {
+        sessionDao.updateSession(session)
     }
 }
