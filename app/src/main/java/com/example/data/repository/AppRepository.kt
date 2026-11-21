@@ -1,5 +1,8 @@
 package com.example.data.repository
 
+import androidx.room.withTransaction
+import androidx.sqlite.db.SupportSQLiteQuery
+import com.example.data.db.AppDatabase
 import com.example.data.db.LineupDao
 import com.example.data.db.PlayerDao
 import com.example.data.db.SessionDao
@@ -14,7 +17,8 @@ open class AppRepository(
     private val lineupDao: LineupDao,
     private val tossDao: TossDao,
     private val playerDao: PlayerDao,
-    private val sessionDao: SessionDao
+    private val sessionDao: SessionDao,
+    private val database: AppDatabase? = null
 ) {
     val allLineups: Flow<List<LineupEntity>> = lineupDao.getAllLineups()
     val allTosses: Flow<List<TossEntity>> = tossDao.getAllTosses()
@@ -59,6 +63,10 @@ open class AppRepository(
         return playerDao.getPlayerByName(name)
     }
 
+    open suspend fun getPlayerById(id: String): PlayerEntity? {
+        return playerDao.getPlayerById(id)
+    }
+
     suspend fun insertPlayer(player: PlayerEntity) {
         playerDao.insertPlayer(player)
     }
@@ -81,6 +89,41 @@ open class AppRepository(
 
     open suspend fun getSessionById(id: Int): SessionEntity? {
         return sessionDao.getSessionById(id)
+    }
+
+    open suspend fun getNextMatchNumber(): Int {
+        return (sessionDao.getMaxMatchNumber() ?: 0) + 1
+    }
+
+    open suspend fun getDistinctFairnessProfiles(): List<String> {
+        return sessionDao.getDistinctFairnessProfiles()
+    }
+
+    open suspend fun querySessionsPaginated(query: SupportSQLiteQuery): List<SessionEntity> {
+        return sessionDao.querySessionsPaginated(query)
+    }
+
+    open suspend fun countSessionsFiltered(query: SupportSQLiteQuery): Int {
+        return sessionDao.countSessionsFiltered(query)
+    }
+
+    /**
+     * Atomically deletes ONLY the specified match record and its associated toss attempts.
+     * Preserves all player profiles, global fairness settings, and unrelated matches.
+     * Historical aggregate player career statistics are intentionally preserved to avoid
+     * introducing inconsistent pair or career totals.
+     */
+    open suspend fun deleteMatchTransactionally(matchId: String): Boolean {
+        if (matchId.isBlank()) return false
+        return if (database != null) {
+            database.withTransaction {
+                tossDao.deleteTossesByMatchId(matchId)
+                sessionDao.deleteSessionByMatchId(matchId) > 0
+            }
+        } else {
+            tossDao.deleteTossesByMatchId(matchId)
+            sessionDao.deleteSessionByMatchId(matchId) > 0
+        }
     }
 
     open suspend fun insertSession(session: SessionEntity): Long {

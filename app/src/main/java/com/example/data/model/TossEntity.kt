@@ -1,10 +1,16 @@
 package com.example.data.model
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.util.UUID
 
-@Entity(tableName = "tosses")
+@Entity(
+    tableName = "tosses",
+    indices = [
+        Index(value = ["matchId"])
+    ]
+)
 data class TossEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val timestamp: Long = System.currentTimeMillis(),

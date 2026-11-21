@@ -167,11 +167,27 @@ fun MainNavigationContainer() {
               }
           )
         }
+        composable("matchDetails/{matchId}") { backStackEntry ->
+          val matchId = backStackEntry.arguments?.getString("matchId") ?: ""
+          MatchDetailsScreen(
+              viewModel = viewModel,
+              matchId = matchId,
+              onNavigateBack = { navController.popBackStack() }
+          )
+        }
         composable("history") {
           HistoryScreen(
               viewModel = viewModel,
               onOpenMatchDetails = { matchId ->
-                  navController.navigate("matchFinalization/$matchId") {
+                  navController.navigate("matchDetails/$matchId") {
+                      launchSingleTop = true
+                  }
+              },
+              onStartNewMatch = {
+                  navController.navigate("build") {
+                      popUpTo(navController.graph.startDestinationId) {
+                          saveState = false
+                      }
                       launchSingleTop = true
                   }
               }

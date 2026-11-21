@@ -11,7 +11,7 @@ import com.example.data.model.TossEntity
 import com.example.data.model.PlayerEntity
 import com.example.data.model.SessionEntity
 
-@Database(entities = [LineupEntity::class, TossEntity::class, PlayerEntity::class, SessionEntity::class], version = 9, exportSchema = false)
+@Database(entities = [LineupEntity::class, TossEntity::class, PlayerEntity::class, SessionEntity::class], version = 10, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun lineupDao(): LineupDao
     abstract fun tossDao(): TossDao
@@ -110,6 +110,26 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `matchNumber` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `totalEligiblePlayers` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `teammatePenalty` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `opponentPenalty` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `teamStrengthDifference` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `excludedPlayerNamesJson` TEXT NOT NULL DEFAULT '[]'")
+                db.execSQL("ALTER TABLE `sessions` ADD COLUMN `hasFairnessBreakdown` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE `sessions` SET `hasFairnessBreakdown` = 1 WHERE `overallFairnessScore` > 0.0 AND `fairnessRating` != ''")
+
+                // Performance indexes for Match History pagination, filtering, sorting, and toss joins
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_sessions_timestamp` ON `sessions` (`timestamp`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_sessions_matchStatus` ON `sessions` (`matchStatus`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_sessions_completedAt` ON `sessions` (`completedAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_sessions_matchId` ON `sessions` (`matchId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_tosses_matchId` ON `tosses` (`matchId`)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -125,7 +145,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_5_6,
                     MIGRATION_6_7,
                     MIGRATION_7_8,
-                    MIGRATION_8_9
+                    MIGRATION_8_9,
+                    MIGRATION_9_10
                 )
                 .fallbackToDestructiveMigration(dropAllTables = false)
                 .build()

@@ -1,10 +1,19 @@
 package com.example.data.model
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.util.UUID
 
-@Entity(tableName = "sessions")
+@Entity(
+    tableName = "sessions",
+    indices = [
+        Index(value = ["timestamp"]),
+        Index(value = ["matchStatus"]),
+        Index(value = ["completedAt"]),
+        Index(value = ["matchId"])
+    ]
+)
 data class SessionEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val playerIdsJson: String, // Ordered JSON array of player names (or IDs)
@@ -31,5 +40,12 @@ data class SessionEntity(
     val completedAt: Long = 0L,
     val latestTossChoice: String = "",
     val latestTossResult: String = "",
-    val latestTossWon: Boolean = false
+    val latestTossWon: Boolean = false,
+    val matchNumber: Int? = null,
+    val totalEligiblePlayers: Int = 0,
+    val teammatePenalty: Int? = null,
+    val opponentPenalty: Int? = null,
+    val teamStrengthDifference: Int? = null,
+    val excludedPlayerNamesJson: String = "[]",
+    val hasFairnessBreakdown: Boolean = false
 )

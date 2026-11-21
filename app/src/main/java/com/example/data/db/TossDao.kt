@@ -27,6 +27,9 @@ interface TossDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertToss(toss: TossEntity): Long
 
+    @Query("DELETE FROM tosses WHERE matchId = :matchId")
+    suspend fun deleteTossesByMatchId(matchId: String): Int
+
     @Query("DELETE FROM tosses")
     suspend fun clearAllTosses()
 }

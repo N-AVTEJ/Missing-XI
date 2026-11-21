@@ -25,7 +25,13 @@ import com.example.util.LockedPlayerGroup
 import com.example.util.ManualEditState
 import com.example.util.ManualTeamEditManager
 import com.example.util.MatchConstraints
+import com.example.util.MatchDateRangeFilter
+import com.example.util.MatchDetailsData
+import com.example.util.MatchHistoryStore
+import com.example.util.MatchHistoryUiState
+import com.example.util.MatchSortOrder
 import com.example.util.MatchStatus
+import com.example.util.MatchStatusFilter
 import com.example.util.MatchSummaryData
 import com.example.util.MatchTossCoordinator
 import com.example.util.MatchTossEngine
@@ -63,7 +69,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         database.lineupDao(),
         database.tossDao(),
         database.playerDao(),
-        database.sessionDao()
+        database.sessionDao(),
+        database
     )
     val firebaseService = FirebaseService()
 
@@ -91,6 +98,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val matchTossUiState: StateFlow<MatchTossUiState> = matchTossCoordinator.tossUiState
     val reopenedMatchSummary: StateFlow<MatchSummaryData?> = matchTossCoordinator.reopenedMatchSummary
     private var activeCoinFlipJob: Job? = null
+
+    private val matchHistoryStore = MatchHistoryStore(repository)
+    val matchHistoryUiState: StateFlow<MatchHistoryUiState> = matchHistoryStore.uiState
+    val selectedMatchDetails: StateFlow<MatchDetailsData?> = matchHistoryStore.selectedMatchDetails
 
     init {
         loadLatestSession()
@@ -1487,9 +1498,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }.toString()
                 }).toString()
                 val excludedIdsJson = org.json.JSONArray(capturedBaseline.originalExcludedPlayers.map { it.id }).toString()
+                val excludedNamesJson = org.json.JSONArray(capturedBaseline.originalExcludedPlayers.map { it.name }).toString()
 
                 val existingDb = repository.getSessionByMatchId(matchId)
                     ?: if (capturedBaseline.dbSessionId > 0) repository.getSessionById(capturedBaseline.dbSessionId) else null
+                val resolvedMatchNumber = existingDb?.matchNumber ?: repository.getNextMatchNumber()
 
                 val updatedEntity = com.example.data.model.SessionEntity(
                     id = existingDb?.id ?: capturedBaseline.dbSessionId,
@@ -1517,7 +1530,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     completedAt = existingDb?.completedAt ?: 0L,
                     latestTossChoice = existingDb?.latestTossChoice ?: "",
                     latestTossResult = existingDb?.latestTossResult ?: "",
-                    latestTossWon = existingDb?.latestTossWon ?: false
+                    latestTossWon = existingDb?.latestTossWon ?: false,
+                    matchNumber = resolvedMatchNumber,
+                    totalEligiblePlayers = participatingPlayerNames.size,
+                    teammatePenalty = finalFairness.evaluation.teammatePenalty,
+                    opponentPenalty = finalFairness.evaluation.opponentPenalty,
+                    teamStrengthDifference = finalFairness.evaluation.strengthDifference,
+                    excludedPlayerNamesJson = excludedNamesJson,
+                    hasFairnessBreakdown = true
                 )
                 val resolvedDbId = if (updatedEntity.id > 0) {
                     repository.updateSession(updatedEntity)
@@ -1534,6 +1554,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     joker = finalJoker
                 )
                 loadLatestSession()
+                matchHistoryStore.refreshHistory()
                 if (confirmRes.isSuccess) {
                     onConfirmed?.invoke(matchId)
                 }
@@ -1692,6 +1713,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }.toString()
             }).toString()
             val excludedIdsJson = org.json.JSONArray(chosen.excludedPlayers.map { it.id }).toString()
+            val excludedNamesJson = org.json.JSONArray(excludedNames).toString()
+            val nextMatchNumber = repository.getNextMatchNumber()
 
             val dbSession = com.example.data.model.SessionEntity(
                 playerIdsJson = jsonArray.toString(),
@@ -1714,13 +1737,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 originalArrangementJson = originalArrangementJson,
                 matchId = newMatchId,
                 matchStatus = MatchStatus.TEAMS_GENERATED.name,
-                finalTeamsJson = serializedFinalTeamsJson
+                finalTeamsJson = serializedFinalTeamsJson,
+                matchNumber = nextMatchNumber,
+                totalEligiblePlayers = participatingPlayerNames.size,
+                teammatePenalty = chosen.fairnessEvaluation.teammatePenalty,
+                opponentPenalty = chosen.fairnessEvaluation.opponentPenalty,
+                teamStrengthDifference = chosen.fairnessEvaluation.strengthDifference,
+                excludedPlayerNamesJson = excludedNamesJson,
+                hasFairnessBreakdown = true
             )
             val insertedRowId = repository.insertSession(dbSession)
             if (activeShuffleBaseline?.shuffleNumber == shuffleNum) {
                 activeShuffleBaseline = activeShuffleBaseline?.copy(dbSessionId = insertedRowId.toInt())
             }
             loadLatestSession() // Update latest session state
+            matchHistoryStore.refreshHistory()
 
             val currentTime = System.currentTimeMillis()
             participatingPlayerNames.forEach { playerName ->
@@ -2039,6 +2070,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     } else session
                 }
                 loadLatestSession()
+                matchHistoryStore.refreshHistory()
                 onFinalized(summary.matchId)
             }
         }
@@ -2052,6 +2084,81 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 fallbackTeams = inMemoryMatch?.teams ?: emptyList(),
                 fallbackJoker = inMemoryMatch?.joker
             )
+        }
+    }
+
+    // Match History & Match Details Store Actions
+    fun loadMatchHistory() {
+        viewModelScope.launch {
+            matchHistoryStore.loadMatchHistory()
+        }
+    }
+
+    fun loadNextMatchHistoryPage() {
+        viewModelScope.launch {
+            matchHistoryStore.loadNextPage()
+        }
+    }
+
+    fun searchMatchHistory(query: String) {
+        viewModelScope.launch {
+            matchHistoryStore.searchMatches(query)
+        }
+    }
+
+    fun applyMatchHistoryFilters(
+        statusFilter: MatchStatusFilter = matchHistoryUiState.value.filter.statusFilter,
+        fairnessProfile: String? = matchHistoryUiState.value.filter.fairnessProfile,
+        dateRange: MatchDateRangeFilter = matchHistoryUiState.value.filter.dateRange
+    ) {
+        viewModelScope.launch {
+            matchHistoryStore.applyMatchFilters(
+                statusFilter = statusFilter,
+                fairnessProfile = fairnessProfile,
+                dateRange = dateRange
+            )
+        }
+    }
+
+    fun clearMatchHistoryFilters() {
+        viewModelScope.launch {
+            matchHistoryStore.clearFilters()
+        }
+    }
+
+    fun sortMatchHistory(sortOrder: MatchSortOrder) {
+        viewModelScope.launch {
+            matchHistoryStore.sortMatches(sortOrder)
+        }
+    }
+
+    fun refreshMatchHistory() {
+        viewModelScope.launch {
+            matchHistoryStore.refreshHistory()
+        }
+    }
+
+    fun loadMatchDetails(matchId: String) {
+        viewModelScope.launch {
+            matchHistoryStore.getMatchDetails(matchId)
+        }
+    }
+
+    /**
+     * Deletes an individual historical match and its associated toss attempts transactionally.
+     * Preserves all player profiles, global fairness settings, and unrelated matches.
+     */
+    fun deleteMatchRecord(matchId: String, onDeleted: () -> Unit = {}) {
+        viewModelScope.launch {
+            val deleted = matchHistoryStore.deleteMatch(matchId)
+            if (deleted) {
+                sessionHistory.value = sessionHistory.value.filterNot { it.matchId == matchId }
+                if (currentMatchId.value == matchId) {
+                    startNewMatch()
+                }
+                loadLatestSession()
+                onDeleted()
+            }
         }
     }
 

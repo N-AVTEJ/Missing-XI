@@ -84,7 +84,7 @@ class MatchTossAndFinalizationTest {
     private fun openDiskDatabase(name: String): AppDatabase {
         return Room.databaseBuilder(context, AppDatabase::class.java, name)
             .allowMainThreadQueries()
-            .addMigrations(AppDatabase.MIGRATION_8_9)
+            .addMigrations(AppDatabase.MIGRATION_8_9, AppDatabase.MIGRATION_9_10)
             .build()
     }
 
@@ -93,7 +93,8 @@ class MatchTossAndFinalizationTest {
             lineupDao = database.lineupDao(),
             tossDao = database.tossDao(),
             playerDao = database.playerDao(),
-            sessionDao = database.sessionDao()
+            sessionDao = database.sessionDao(),
+            database = database
         )
     }
 
