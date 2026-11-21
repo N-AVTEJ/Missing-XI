@@ -1,10 +1,17 @@
 package com.example.data.model
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.util.UUID
 
-@Entity(tableName = "players")
+@Entity(
+    tableName = "players",
+    indices = [
+        Index(value = ["isArchived"]),
+        Index(value = ["displayName"])
+    ]
+)
 data class PlayerEntity(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
     val displayName: String,

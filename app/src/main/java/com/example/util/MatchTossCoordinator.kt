@@ -58,7 +58,8 @@ class MatchTossCoordinator(
         matchId: String,
         dbSessionId: Int,
         teams: List<GeneratedTeam>,
-        joker: String?
+        joker: String?,
+        jokerId: String? = null
     ): Result<String> {
         if (teams.isEmpty()) {
             return Result.failure(IllegalStateException("No teams available to confirm."))
@@ -74,7 +75,7 @@ class MatchTossCoordinator(
             MatchStatus.TEAMS_CONFIRMED
         }
 
-        val finalTeamsJson = MatchTossEngine.serializeTeamsJson(teams, joker)
+        val finalTeamsJson = MatchTossEngine.serializeTeamsJson(teams, joker, jokerId)
 
         try {
             val existingSession = repository.getSessionByMatchId(matchId)

@@ -99,13 +99,39 @@ fun MainNavigationContainer() {
           HomeScreen(
             viewModel = viewModel,
             onNavigateToBuild = { navController.navigate("build") },
-            onNavigateToToss = { navController.navigate("toss") }
+            onNavigateToToss = { navController.navigate("toss") },
+            onNavigateToPlayers = {
+              navController.navigate("playerDirectory") {
+                launchSingleTop = true
+              }
+            },
+            onNavigateToHistory = {
+              navController.navigate("history") {
+                launchSingleTop = true
+              }
+            }
           )
         }
         composable("build") {
           BuildScreen(
               viewModel = viewModel,
-              onNavigateToLibrary = { navController.navigate("playerPicker") }
+              onNavigateToLibrary = { navController.navigate("playerPicker") },
+              onNavigateToPlayerDirectory = {
+                  navController.navigate("playerDirectory") {
+                      launchSingleTop = true
+                  }
+              }
+          )
+        }
+        composable("playerDirectory") {
+          PlayerDirectoryScreen(
+              viewModel = viewModel,
+              onNavigateBack = { navController.popBackStack() },
+              onOpenPlayerProfile = { playerId ->
+                  navController.navigate("playerProfile/$playerId") {
+                      launchSingleTop = true
+                  }
+              }
           )
         }
         composable("playerPicker") {
@@ -120,7 +146,12 @@ fun MainNavigationContainer() {
           PlayerProfileScreen(
               viewModel = viewModel,
               playerId = playerId,
-              onNavigateBack = { navController.popBackStack() }
+              onNavigateBack = { navController.popBackStack() },
+              onOpenMatchDetails = { matchId ->
+                  navController.navigate("matchDetails/$matchId") {
+                      launchSingleTop = true
+                  }
+              }
           )
         }
         composable("teams") {

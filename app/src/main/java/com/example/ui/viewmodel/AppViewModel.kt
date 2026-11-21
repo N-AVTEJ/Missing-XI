@@ -37,8 +37,14 @@ import com.example.util.MatchTossCoordinator
 import com.example.util.MatchTossEngine
 import com.example.util.MatchTossUiState
 import com.example.util.Player
+import com.example.util.PlayerAnalyticsService
 import com.example.util.PlayerConstraintValidator
+import com.example.util.PlayerDirectorySortOption
+import com.example.util.PlayerDirectoryStore
+import com.example.util.PlayerDirectoryUiState
 import com.example.util.PlayerMatchConstraint
+import com.example.util.PlayerProfileUiState
+import com.example.util.PlayerStatusFilter
 import com.example.util.TeamArrangement
 import com.example.util.TeammatePairTracker
 import com.example.util.TossChoice
@@ -84,6 +90,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val savedSessions: StateFlow<List<com.example.data.model.SessionEntity>> = repository.allSessions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allPlayers = repository.allPlayers
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val allActivePlayers = repository.allActivePlayers
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -102,6 +111,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val matchHistoryStore = MatchHistoryStore(repository)
     val matchHistoryUiState: StateFlow<MatchHistoryUiState> = matchHistoryStore.uiState
     val selectedMatchDetails: StateFlow<MatchDetailsData?> = matchHistoryStore.selectedMatchDetails
+
+    private val playerDirectoryStore = PlayerDirectoryStore(repository, viewModelScope)
+    val playerDirectoryUiState: StateFlow<PlayerDirectoryUiState> = playerDirectoryStore.directoryUiState
+    val playerProfileUiState: StateFlow<PlayerProfileUiState> = playerDirectoryStore.profileUiState
 
     init {
         loadLatestSession()
@@ -211,10 +224,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val session = latestSession.value ?: return@launch
             try {
+                val archivedNames = repository.getAllPlayersSync()
+                    .filter { it.isArchived }
+                    .map { it.displayName.trim().lowercase() }
+                    .toSet()
+
                 val jsonArray = org.json.JSONArray(session.playerIdsJson)
                 val players = mutableListOf<String>()
                 for (i in 0 until jsonArray.length()) {
-                    players.add(jsonArray.getString(i))
+                    val name = jsonArray.getString(i)
+                    // Archived players are excluded from new team generation by default
+                    if (name.trim().lowercase() !in archivedNames) {
+                        players.add(name)
+                    }
                 }
                 if (players.isNotEmpty()) {
                     buildPlayersList.value = players
@@ -228,28 +250,92 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addPlayersFromLibrary(players: List<String>) {
         if (players.isNotEmpty()) {
-            buildPlayersList.value = players
-            buildTotalPlayersInput.value = players.size.toString()
-            hasStartedBuilding.value = true
-            validateDuplicates(players)
+            val archivedNames = allPlayers.value
+                .filter { it.isArchived }
+                .map { it.displayName.trim().lowercase() }
+                .toSet()
+            val activeOnly = players.filter { it.trim().lowercase() !in archivedNames }
+            if (activeOnly.isNotEmpty()) {
+                buildPlayersList.value = activeOnly
+                buildTotalPlayersInput.value = activeOnly.size.toString()
+                hasStartedBuilding.value = true
+                validateDuplicates(activeOnly)
+            }
         }
     }
 
     fun togglePlayerFavorite(player: com.example.data.model.PlayerEntity) {
         viewModelScope.launch {
-            repository.updatePlayer(player.copy(isFavorite = !player.isFavorite))
+            repository.updatePlayer(player.copy(isFavorite = !player.isFavorite, updatedAt = System.currentTimeMillis()))
         }
     }
 
     fun archivePlayer(player: com.example.data.model.PlayerEntity) {
+        archivePlayerById(player.id)
+    }
+
+    fun restorePlayer(player: com.example.data.model.PlayerEntity) {
+        restorePlayerById(player.id)
+    }
+
+    fun archivePlayerById(playerId: String) {
         viewModelScope.launch {
-            repository.updatePlayer(player.copy(isArchived = true))
+            playerDirectoryStore.archivePlayer(playerId)
+        }
+    }
+
+    fun restorePlayerById(playerId: String) {
+        viewModelScope.launch {
+            playerDirectoryStore.restorePlayer(playerId)
         }
     }
 
     fun deletePlayer(player: com.example.data.model.PlayerEntity) {
         viewModelScope.launch {
-            repository.deletePlayer(player.id)
+            playerDirectoryStore.removePlayerSafely(player.id)
+        }
+    }
+
+    // Player Directory & Profile Analytics Actions
+    fun setPlayerDirectorySearch(query: String) {
+        playerDirectoryStore.setSearchQuery(query)
+    }
+
+    fun setPlayerDirectoryStatusFilter(filter: PlayerStatusFilter) {
+        playerDirectoryStore.setStatusFilter(filter)
+    }
+
+    fun setPlayerDirectorySortOption(option: PlayerDirectorySortOption) {
+        playerDirectoryStore.setSortOption(option)
+    }
+
+    fun clearPlayerDirectoryFilters() {
+        playerDirectoryStore.clearDirectoryFilters()
+    }
+
+    fun selectPlayerProfile(playerId: String) {
+        playerDirectoryStore.selectPlayerProfile(playerId)
+    }
+
+    fun clearPlayerProfileStatusBanner() {
+        playerDirectoryStore.clearStatusBanner()
+    }
+
+    fun updatePlayerSkillRatingById(playerId: String, rating: Int) {
+        viewModelScope.launch {
+            playerDirectoryStore.updatePlayerSkillRating(playerId, rating)
+        }
+    }
+
+    fun createLibraryPlayer(
+        displayName: String,
+        skillRating: Int = PlayerAnalyticsService.DEFAULT_SKILL_RATING,
+        nickname: String? = null,
+        onResult: (Result<PlayerEntity>) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val res = playerDirectoryStore.createPlayer(displayName, skillRating, nickname)
+            onResult(res)
         }
     }
 
@@ -412,9 +498,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     fun updatePlayerSkill(player: PlayerEntity, rating: Int) {
-        val clamped = rating.coerceIn(1, 10)
+        val clamped = rating.coerceIn(
+            PlayerAnalyticsService.MIN_SKILL_RATING,
+            PlayerAnalyticsService.MAX_SKILL_RATING
+        )
         viewModelScope.launch {
-            repository.updatePlayer(player.copy(skillRating = clamped))
+            playerDirectoryStore.updatePlayerSkillRating(player.id, clamped)
         }
     }
 
@@ -864,14 +953,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             exitManualEditMode()
         }
         val numTeams = configNumberOfTeams.value.toIntOrNull() ?: 0
-        val activePlayersMap = allActivePlayers.value.associateBy { it.displayName }
-        val activePlayerObjects = buildPlayersList.value.mapIndexed { index, name ->
+        val activePlayersMap = allActivePlayers.value.associateBy { it.displayName.trim().lowercase() }
+        val activePlayerObjects = buildPlayersList.value.map { name ->
             val cleanName = name.trim()
-            val dbPlayer = activePlayersMap[cleanName]
+            val dbPlayer = activePlayersMap[cleanName.lowercase()]
             Player(
-                id = dbPlayer?.id ?: "player_${index + 1}",
+                id = dbPlayer?.id ?: java.util.UUID.randomUUID().toString(),
                 name = cleanName,
-                skillRating = dbPlayer?.skillRating ?: 5
+                skillRating = dbPlayer?.skillRating ?: PlayerAnalyticsService.DEFAULT_SKILL_RATING
             )
         }.filter { it.name.isNotBlank() }
         val activePlayerNames = activePlayerObjects.map { it.name }
@@ -1464,7 +1553,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
         val participatingPlayerNames = (finalTeams.flatMap { it.players } + (finalJoker?.let { listOf(it) } ?: emptyList())).distinct()
         val matchId = baseline?.matchId ?: currentMatchId.value ?: java.util.UUID.randomUUID().toString()
-        val finalTeamsJson = MatchTossEngine.serializeTeamsJson(finalTeams, finalJoker)
+        val finalJokerId = confirmed.finalArrangement.jokerId
+            ?: finalJoker?.let { jName ->
+                baseline?.activePlayerObjects?.firstOrNull { it.name.equals(jName.trim(), ignoreCase = true) }?.id
+                    ?: allPlayers.value.firstOrNull { it.displayName.equals(jName.trim(), ignoreCase = true) }?.id
+            }
+        val finalTeamsJson = MatchTossEngine.serializeTeamsJson(finalTeams, finalJoker, finalJokerId)
 
         sessionHistory.value = sessionHistory.value.map { session ->
             if (session.shuffleNumber == targetShuffleNum) {
@@ -1551,7 +1645,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     matchId = matchId,
                     dbSessionId = resolvedDbId,
                     teams = finalTeams,
-                    joker = finalJoker
+                    joker = finalJoker,
+                    jokerId = finalJokerId
                 )
                 loadLatestSession()
                 matchHistoryStore.refreshHistory()
@@ -1623,7 +1718,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val shuffleNum = nextShuffleNumber++
         currentShuffleNumber.value = shuffleNum
         val newMatchId = java.util.UUID.randomUUID().toString()
-        val serializedFinalTeamsJson = MatchTossEngine.serializeTeamsJson(chosen.teams, chosen.joker)
+        val chosenJokerId = chosen.joker?.let { jName ->
+            activePlayerObjects.firstOrNull { it.name.equals(jName.trim(), ignoreCase = true) }?.id
+        }
+        val serializedFinalTeamsJson = MatchTossEngine.serializeTeamsJson(chosen.teams, chosen.joker, chosenJokerId)
         matchTossCoordinator.onTeamsGenerated(newMatchId)
 
         activeShuffleBaseline = ActiveShuffleBaseline(
@@ -1791,8 +1889,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     )
                 } else {
+                    val canonicalPlayerId = activePlayerObjects
+                        .firstOrNull { it.name.equals(playerName.trim(), ignoreCase = true) }
+                        ?.id
+                        ?: java.util.UUID.randomUUID().toString()
                     repository.insertPlayer(
                         com.example.data.model.PlayerEntity(
+                            id = canonicalPlayerId,
                             displayName = playerName,
                             totalMatches = 1,
                             matchesPlayed = 1,
@@ -1967,13 +2070,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val matchId = baseline?.matchId ?: currentMatchId.value ?: java.util.UUID.randomUUID().toString()
         val dbSessionId = baseline?.dbSessionId ?: 0
         val joker = jokerPlayer.value
+        val jokerId = joker?.let { jName ->
+            baseline?.activePlayerObjects?.firstOrNull { it.name.equals(jName.trim(), ignoreCase = true) }?.id
+                ?: allPlayers.value.firstOrNull { it.displayName.equals(jName.trim(), ignoreCase = true) }?.id
+        }
 
         viewModelScope.launch {
             val result = matchTossCoordinator.confirmTeamsForToss(
                 matchId = matchId,
                 dbSessionId = dbSessionId,
                 teams = teams,
-                joker = joker
+                joker = joker,
+                jokerId = jokerId
             )
             if (result.isSuccess) {
                 val updatedStatus = matchTossCoordinator.currentMatchStatus.value
@@ -1983,6 +2091,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     } else session
                 }
                 loadLatestSession()
+                matchHistoryStore.refreshHistory()
                 onReadyForToss(matchId)
             }
         }

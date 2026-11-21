@@ -32,7 +32,11 @@ import com.example.ui.viewmodel.AppViewModel
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun BuildScreen(viewModel: AppViewModel, onNavigateToLibrary: () -> Unit) {
+fun BuildScreen(
+    viewModel: AppViewModel,
+    onNavigateToLibrary: () -> Unit,
+    onNavigateToPlayerDirectory: () -> Unit = {}
+) {
     val totalPlayersInput by viewModel.buildTotalPlayersInput.collectAsState()
     val playersList by viewModel.buildPlayersList.collectAsState()
     val searchQuery by viewModel.buildSearchQuery.collectAsState()
@@ -122,6 +126,27 @@ fun BuildScreen(viewModel: AppViewModel, onNavigateToLibrary: () -> Unit) {
                         Column {
                             Text("Create New Players", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                             Text("Start fresh and enter names manually", color = Color.Gray, fontSize = 12.sp)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+
+                GlassyCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigateToPlayerDirectory() }
+                        .testTag("build_open_player_directory_btn"),
+                    cornerRadius = 16
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Icon(Icons.Default.Groups, contentDescription = "Player Directory", tint = GoldStar, modifier = Modifier.size(32.dp))
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text("Player Profiles & Analytics", color = GoldStar, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Text("View chemistry, skill ratings, and archived players", color = Color.Gray, fontSize = 12.sp)
                         }
                     }
                 }

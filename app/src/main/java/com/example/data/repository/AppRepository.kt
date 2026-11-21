@@ -22,7 +22,9 @@ open class AppRepository(
 ) {
     val allLineups: Flow<List<LineupEntity>> = lineupDao.getAllLineups()
     val allTosses: Flow<List<TossEntity>> = tossDao.getAllTosses()
+    val allPlayers: Flow<List<PlayerEntity>> = playerDao.getAllPlayers()
     val allActivePlayers: Flow<List<PlayerEntity>> = playerDao.getAllActivePlayers()
+    val archivedPlayers: Flow<List<PlayerEntity>> = playerDao.getArchivedPlayers()
     val recentlyUsedPlayers: Flow<List<PlayerEntity>> = playerDao.getRecentlyUsedPlayers()
     val sessionCount: Flow<Int> = sessionDao.getSessionCount()
     val allSessions: Flow<List<SessionEntity>> = sessionDao.getAllSessions()
@@ -67,6 +69,14 @@ open class AppRepository(
         return playerDao.getPlayerById(id)
     }
 
+    open suspend fun getAllPlayersSync(): List<PlayerEntity> {
+        return playerDao.getAllPlayersSync()
+    }
+
+    open suspend fun getAllSessionsSync(): List<SessionEntity> {
+        return sessionDao.getAllSessionsSync()
+    }
+
     suspend fun insertPlayer(player: PlayerEntity) {
         playerDao.insertPlayer(player)
     }
@@ -75,8 +85,107 @@ open class AppRepository(
         playerDao.updatePlayer(player)
     }
 
+    /**
+     * Updates a player's skill rating (validated 1..10) transactionally without modifying
+     * any historical match records or stored historical fairness/strength values.
+     */
+    open suspend fun updatePlayerSkillRatingTransactionally(
+        playerId: String,
+        skillRating: Int,
+        updatedAt: Long = System.currentTimeMillis()
+    ): Boolean {
+        val validated = com.example.util.PlayerAnalyticsService.validateSkillRating(skillRating).getOrThrow()
+        return if (database != null) {
+            database.withTransaction {
+                playerDao.updateSkillRating(playerId, validated, updatedAt) > 0
+            }
+        } else {
+            playerDao.updateSkillRating(playerId, validated, updatedAt) > 0
+        }
+    }
+
+    /**
+     * Archives or restores a player transactionally while preserving all historical relationships
+     * and match records.
+     */
+    open suspend fun setPlayerArchivedTransactionally(
+        playerId: String,
+        isArchived: Boolean,
+        updatedAt: Long = System.currentTimeMillis()
+    ): Boolean {
+        return if (database != null) {
+            database.withTransaction {
+                playerDao.setPlayerArchived(playerId, isArchived, updatedAt) > 0
+            }
+        } else {
+            playerDao.setPlayerArchived(playerId, isArchived, updatedAt) > 0
+        }
+    }
+
+    open suspend fun createPlayerTransactionally(
+        displayName: String,
+        skillRating: Int = com.example.util.PlayerAnalyticsService.DEFAULT_SKILL_RATING,
+        nickname: String? = null,
+        createdAt: Long = System.currentTimeMillis()
+    ): PlayerEntity {
+        val validated = com.example.util.PlayerAnalyticsService.validateSkillRating(skillRating).getOrThrow()
+        val entity = PlayerEntity(
+            displayName = displayName.trim(),
+            nickname = nickname?.trim()?.takeIf { it.isNotBlank() },
+            createdAt = createdAt,
+            lastUsedAt = 0L,
+            lastPlayedAt = 0L,
+            updatedAt = createdAt,
+            skillRating = validated
+        )
+        if (database != null) {
+            database.withTransaction {
+                playerDao.insertPlayer(entity)
+            }
+        } else {
+            playerDao.insertPlayer(entity)
+        }
+        return entity
+    }
+
+    /**
+     * Safely handles player removal: if the player is referenced by ANY historical match record,
+     * archives the player instead of permanently deleting them so historical records stay intact.
+     */
+    open suspend fun deletePlayerSafely(
+        playerId: String,
+        updatedAt: Long = System.currentTimeMillis()
+    ): com.example.util.PlayerRemovalResult {
+        val action: suspend () -> com.example.util.PlayerRemovalResult = {
+            val existing = playerDao.getPlayerById(playerId)
+            if (existing == null) {
+                com.example.util.PlayerRemovalResult.NotFound
+            } else {
+                val allPlayers = playerDao.getAllPlayersSync()
+                val allSessions = sessionDao.getAllSessionsSync()
+                val isReferenced = com.example.util.PlayerAnalyticsService.isPlayerReferencedInAnyMatch(
+                    playerId = playerId,
+                    allPlayers = allPlayers,
+                    allSessions = allSessions
+                )
+                if (isReferenced) {
+                    playerDao.setPlayerArchived(playerId, true, updatedAt)
+                    com.example.util.PlayerRemovalResult.ArchivedBecauseReferenced(playerId)
+                } else {
+                    playerDao.deletePlayerById(playerId)
+                    com.example.util.PlayerRemovalResult.Deleted(playerId)
+                }
+            }
+        }
+        return if (database != null) {
+            database.withTransaction { action() }
+        } else {
+            action()
+        }
+    }
+
     suspend fun deletePlayer(id: String) {
-        playerDao.deletePlayerById(id)
+        deletePlayerSafely(id)
     }
 
     suspend fun getLatestSession(): SessionEntity? {

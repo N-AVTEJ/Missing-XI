@@ -43,10 +43,13 @@ import com.example.ui.viewmodel.AppViewModel
 fun HomeScreen(
     viewModel: AppViewModel,
     onNavigateToBuild: () -> Unit,
-    onNavigateToToss: () -> Unit
+    onNavigateToToss: () -> Unit,
+    onNavigateToPlayers: () -> Unit = {},
+    onNavigateToHistory: () -> Unit = {}
 ) {
     val savedLineups by viewModel.savedLineups.collectAsState()
     val savedTosses by viewModel.savedTosses.collectAsState()
+    val allActivePlayers by viewModel.allActivePlayers.collectAsState()
     val userEmail = "madipadiganavtej@gmail.com" // Preserving user identification
 
     FrostedMeshBackground {
@@ -226,7 +229,8 @@ fun HomeScreen(
                     GlassyCard(
                         modifier = Modifier
                             .weight(1f)
-                            .height(130.dp),
+                            .height(130.dp)
+                            .clickable { onNavigateToHistory() },
                         cornerRadius = 24
                     ) {
                         Column(
@@ -262,6 +266,63 @@ fun HomeScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            // Player Directory & Analytics Entry Card
+            item {
+                GlassyCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(22.dp))
+                        .clickable { onNavigateToPlayers() }
+                        .testTag("home_players_directory_btn"),
+                    cornerRadius = 22
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(NeonBlue.copy(alpha = 0.18f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Groups,
+                                    contentDescription = "Player Directory",
+                                    tint = NeonBlue,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = "Player Directory & Analytics",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                )
+                                Text(
+                                    text = "${allActivePlayers.size} active players • Chemistry, skill & timeline",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.Gray)
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = "Open Player Directory",
+                            tint = NeonBlue
+                        )
                     }
                 }
             }

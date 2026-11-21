@@ -11,7 +11,7 @@ import com.example.data.model.TossEntity
 import com.example.data.model.PlayerEntity
 import com.example.data.model.SessionEntity
 
-@Database(entities = [LineupEntity::class, TossEntity::class, PlayerEntity::class, SessionEntity::class], version = 10, exportSchema = false)
+@Database(entities = [LineupEntity::class, TossEntity::class, PlayerEntity::class, SessionEntity::class], version = 11, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun lineupDao(): LineupDao
     abstract fun tossDao(): TossDao
@@ -130,6 +130,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Performance indexes for Player Directory filtering & sorting
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_players_isArchived` ON `players` (`isArchived`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_players_displayName` ON `players` (`displayName`)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -146,7 +154,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_6_7,
                     MIGRATION_7_8,
                     MIGRATION_8_9,
-                    MIGRATION_9_10
+                    MIGRATION_9_10,
+                    MIGRATION_10_11
                 )
                 .fallbackToDestructiveMigration(dropAllTables = false)
                 .build()

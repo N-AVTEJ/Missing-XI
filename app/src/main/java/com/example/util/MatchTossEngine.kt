@@ -82,7 +82,17 @@ object MatchTossEngine {
         return status == MatchStatus.TOSS_COMPLETED
     }
 
-    fun serializeTeamsJson(teams: List<GeneratedTeam>, joker: String?): String {
+    data class ParsedTeamsSnapshot(
+        val teams: List<GeneratedTeam> = emptyList(),
+        val jokerName: String? = null,
+        val jokerId: String? = null
+    )
+
+    fun serializeTeamsJson(
+        teams: List<GeneratedTeam>,
+        joker: String?,
+        jokerId: String? = null
+    ): String {
         val root = JSONObject()
         val teamsArr = JSONArray()
         teams.forEach { team ->
@@ -103,18 +113,25 @@ object MatchTossEngine {
         if (!joker.isNullOrBlank()) {
             root.put("joker", joker)
         }
+        if (!jokerId.isNullOrBlank()) {
+            root.put("jokerId", jokerId)
+        }
         return root.toString()
     }
 
-    fun parseTeamsJson(json: String): Pair<List<GeneratedTeam>, String?> {
-        if (json.isBlank()) return emptyList<GeneratedTeam>() to null
+    fun parseTeamsJsonWithMetadata(json: String): ParsedTeamsSnapshot {
+        if (json.isBlank()) return ParsedTeamsSnapshot()
         return try {
             val root = JSONObject(json)
             val joker = if (root.has("joker") && !root.isNull("joker")) {
                 root.optString("joker").takeIf { it.isNotBlank() }
             } else null
+            val jokerId = if (root.has("jokerId") && !root.isNull("jokerId")) {
+                root.optString("jokerId").takeIf { it.isNotBlank() }
+            } else null
 
-            val teamsArr = root.optJSONArray("teams") ?: return emptyList<GeneratedTeam>() to joker
+            val teamsArr = root.optJSONArray("teams")
+                ?: return ParsedTeamsSnapshot(teams = emptyList(), jokerName = joker, jokerId = jokerId)
             val teams = mutableListOf<GeneratedTeam>()
             for (i in 0 until teamsArr.length()) {
                 val obj = teamsArr.getJSONObject(i)
@@ -135,9 +152,14 @@ object MatchTossEngine {
                     )
                 )
             }
-            teams to joker
+            ParsedTeamsSnapshot(teams = teams, jokerName = joker, jokerId = jokerId)
         } catch (_: Exception) {
-            emptyList<GeneratedTeam>() to null
+            ParsedTeamsSnapshot()
         }
+    }
+
+    fun parseTeamsJson(json: String): Pair<List<GeneratedTeam>, String?> {
+        val snapshot = parseTeamsJsonWithMetadata(json)
+        return snapshot.teams to snapshot.jokerName
     }
 }
